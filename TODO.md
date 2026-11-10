@@ -20,7 +20,17 @@ These were converted one-to-one from the minified build but not clicked through 
 - [ ] New pieces from the catalog always appear in the same 5 staggered spots (`items.length % 5`). They can land on top of existing furniture.
 - [ ] Saved layouts are per site (localStorage). Layouts from the claude.ai artifact must be moved over by hand: Export → Copy there, Import here.
 
+## Room drawing (step 1 done: one room of any shape)
+- [ ] **Step 2: multiple rooms, connected wall to wall.** Add/select/rename/delete rooms; while drawing, snap edges to another room's outer wall face (gap = wall thickness, default 10 cm); build one wall on the shared stretch; Room tab edits the selected room; Eye level uses it.
+- [ ] Plan view on touch: while drawing, one finger places corners, so you can't pan/pinch mid-drawing (zoom first, or finish and edit).
+- [ ] Typing a wall length moves the wall's *end* corner (in drawing order), and the next wall too if it is square. There's no choice of which end moves.
+- [ ] Walls of an inside corner (L-shaped room) auto-hide by the same "camera beyond the wall's line" rule, so from some angles an inner wall hides while you could still see it.
+- [ ] Very short walls between two inside corners can give odd mitred wall geometry (cosmetic).
+- [ ] Furniture is clamped to the room its centre is in; a piece too big for every spot is centred and sticks out (same rule as the old rectangle).
+
 ## Code smells (fine at this size)
+- [ ] `clampToRooms` falls back to a 10 cm grid search (~6 ms for a piece that fits nowhere), which runs on every pointer move while dragging such a piece.
+- [ ] The plan overlay rebuilds its whole SVG via `innerHTML` whenever the view or outline changes.
 - [ ] Every item edit (size, colour) rebuilds the whole piece's geometry and materials (`rebuildItem`).
 - [ ] Outlines are disposed and recreated on every pointer move while dragging (`refreshOutlines`).
 - [ ] `applyLighting()` runs on every `rebuildItem` call and walks all items to find lamp lights.

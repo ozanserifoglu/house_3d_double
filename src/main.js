@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CATALOG, BUILD } from './catalog.js';
-import { clampToRoom, snapToWalls, snapOpeningToWall, footprintsOverlap } from './layout-math.js';
+import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap } from './layout-math.js';
+import { edges, offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon } from './polygon.js';
+import { createPlan } from './plan.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -26,7 +28,15 @@ const store = {
 };
 
 // ---------- State (all lengths in cm) ----------
-const room = { w: 500, d: 400, h: 260, floor: '#c9b79c', wall: '#f2efe9', light: 'day', snap: 5 };
+// View preferences, not part of undo history.
+const settings = { light: 'day', snap: 5 };
+// Room: { id, name, pts: [[x, z], ...] inside outline (see polygon.js), h, floor, wall }
+let rooms = [];
+let nextRoomId = 1;
+const WALL_T = 12; // outer wall thickness; walls sit outside the outline
+const newRoom = (props) => ({ id: nextRoomId++, name: 'Room', pts: rectPts(500, 400), h: 260, floor: '#c9b79c', wall: '#f2efe9', ...props });
+// The room the Room tab edits. One room for now; multi-room comes next.
+const currentRoom = () => rooms[0];
 // Item: { id, type, w, d, h, y (lift), x, z, rot (deg), color, obj }
 let items = [];
 let selected = null;
@@ -58,7 +68,7 @@ scene.add(sun, sun.target);
 
 const roomGroup = new THREE.Group();
 scene.add(roomGroup);
-let walls = []; // { m: Mesh, nx, nz } — nx/nz is the wall's outward side
+let walls = []; // { m: Mesh, a: [x, z], nx, nz } — a point on the wall's inside face, and its outward normal
 
 // ---------- Pointer: drag furniture on the floor ----------
 // Registered (capture phase) before OrbitControls so it can disable
@@ -70,10 +80,14 @@ const pointerNdc = new THREE.Vector2();
 const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const hitPoint = new THREE.Vector3();
 
+// Plan mode swaps in its own top-down orthographic camera and pan/zoom controls.
+const activeCamera = () => (plan.active ? plan.camera : camera);
+const activeControls = () => (plan.active ? plan.controls : controls);
+
 function setRayFromEvent(e) {
   const r = canvas.getBoundingClientRect();
   pointerNdc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-  raycaster.setFromCamera(pointerNdc, camera);
+  raycaster.setFromCamera(pointerNdc, activeCamera());
 }
 
 function itemIdFromObject(o) {
@@ -86,6 +100,11 @@ function itemIdFromObject(o) {
 canvas.addEventListener(
   'pointerdown',
   (e) => {
+    // Plan mode: corners, walls, length labels and drawing come first.
+    if (plan.active && plan.pointerDown(e)) {
+      press = null;
+      return;
+    }
     setRayFromEvent(e);
     const hits = raycaster.intersectObjects(items.map((it) => it.obj), true);
     press = { x: e.clientX, y: e.clientY, hit: false };
@@ -97,28 +116,29 @@ canvas.addEventListener(
     select(it, true);
     if (raycaster.ray.intersectPlane(floorPlane, hitPoint)) {
       drag = { it, ox: hitPoint.x - it.x, oz: hitPoint.z - it.z, moved: false };
-      controls.enabled = false;
+      activeControls().enabled = false;
     }
   },
   true,
 );
 
 canvas.addEventListener('pointermove', (e) => {
+  if (plan.active && plan.pointerMove(e)) return;
   if (!drag) return;
   setRayFromEvent(e);
   if (!raycaster.ray.intersectPlane(floorPlane, hitPoint)) return;
   const it = drag.it;
   let x = hitPoint.x - drag.ox, z = hitPoint.z - drag.oz;
-  const s = room.snap;
+  const s = settings.snap;
   if (s > 0) {
     x = Math.round(x / s) * s;
     z = Math.round(z / s) * s;
   }
   it.x = x;
   it.z = z;
-  if (CATALOG[it.type].opening) snapOpeningToWall(it, room);
-  else snapToWalls(it, room);
-  clampToRoom(it, room);
+  if (CATALOG[it.type].opening) snapOpeningToWall(it, rooms);
+  else snapToWalls(it, rooms);
+  clampToRooms(it, rooms);
   applyTransform(it);
   drag.moved = true;
   computeOverlaps();
@@ -127,13 +147,17 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 window.addEventListener('pointerup', (e) => {
+  if (plan.active && plan.pointerUp(e)) {
+    press = null;
+    return;
+  }
   if (drag) {
     if (drag.moved) {
       scheduleAutosave();
       checkpoint();
     }
     drag = null;
-    controls.enabled = true;
+    activeControls().enabled = true;
   } else if (press && !press.hit && e && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 5) {
     select(null); // tap on empty space deselects
   }
@@ -141,11 +165,16 @@ window.addEventListener('pointerup', (e) => {
 });
 
 window.addEventListener('pointercancel', () => {
+  if (plan.active) plan.pointerCancel();
   if (drag) {
     drag = null;
-    controls.enabled = true;
+    activeControls().enabled = true;
   }
   press = null;
+});
+
+canvas.addEventListener('dblclick', (e) => {
+  if (plan.active) plan.dblClick(e);
 });
 
 const controls = new OrbitControls(camera, canvas);
@@ -153,6 +182,28 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.12;
 controls.maxPolarAngle = Math.PI / 2 - 0.02;
 controls.minDistance = 40;
+
+const defaultHint = $('#hint').textContent;
+const plan = createPlan({
+  canvas,
+  view,
+  scene,
+  wallT: WALL_T,
+  getRooms: () => rooms,
+  getSnap: () => settings.snap,
+  onLive: () => buildRooms(), // outline changing mid-drag
+  onDone: () => {
+    onRoomsChanged();
+    checkpoint();
+  },
+  // A newly drawn outline replaces the current room's.
+  onDrawn: (pts) => {
+    currentRoom().pts = pts;
+    onRoomsChanged();
+    checkpoint();
+  },
+  setHint: (text) => ($('#hint').textContent = text || defaultHint),
+});
 
 // ---------- Items ----------
 function disposeObject(obj) {
@@ -264,7 +315,7 @@ const LIGHTING = {
 };
 
 function applyLighting() {
-  const p = LIGHTING[room.light];
+  const p = LIGHTING[settings.light];
   scene.background = new THREE.Color(p.bg);
   hemi.intensity = p.hemi;
   hemi.color.set(p.hemiSky);
@@ -280,12 +331,12 @@ function applyLighting() {
 }
 
 // ---------- Room ----------
-// 50 cm floor tiles drawn on a canvas.
-function makeFloorTexture() {
+// 50 cm floor tiles drawn on a canvas. Floor UVs are in cm.
+function makeFloorTexture(color) {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = room.floor;
+  ctx.fillStyle = color;
   ctx.fillRect(0, 0, 128, 128);
   ctx.strokeStyle = 'rgba(0,0,0,0.12)';
   ctx.lineWidth = 2;
@@ -293,12 +344,24 @@ function makeFloorTexture() {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(room.w / 50, room.d / 50);
+  tex.repeat.set(1 / 50, 1 / 50);
   tex.anisotropy = 4;
   return tex;
 }
 
-function buildRoom() {
+// Floor-plane polygon [[x, z], ...] → THREE.Shape. Shapes live in the xy
+// plane, so z is stored as -y and the geometry is turned flat afterwards.
+const toShape = (pts) => new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+
+// Vertical prism over a floor-plane polygon, from y0 up `height` cm.
+function prismGeometry(pts, y0, height) {
+  const g = new THREE.ExtrudeGeometry(toShape(pts), { depth: height, bevelEnabled: false });
+  g.rotateX(-Math.PI / 2);
+  g.translate(0, y0, 0);
+  return g;
+}
+
+function buildRooms() {
   roomGroup.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
@@ -309,53 +372,56 @@ function buildRoom() {
   roomGroup.clear();
   walls = [];
 
-  const { w, d, h } = room;
-  const t = 12; // wall thickness; walls sit outside the room bounds
+  rooms.forEach((r) => {
+    const floorGeo = new THREE.ShapeGeometry(toShape(r.pts));
+    floorGeo.rotateX(-Math.PI / 2);
+    const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ map: makeFloorTexture(r.floor), roughness: 0.9 }));
+    floor.receiveShadow = true;
+    roomGroup.add(floor);
 
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map: makeFloorTexture(), roughness: 0.9 }));
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  roomGroup.add(floor);
-
-  [
-    { nx: 0, nz: -1, size: [w + t * 2, h, t], pos: [0, h / 2, -d / 2 - t / 2] },
-    { nx: 0, nz: 1, size: [w + t * 2, h, t], pos: [0, h / 2, d / 2 + t / 2] },
-    { nx: -1, nz: 0, size: [t, h, d], pos: [-w / 2 - t / 2, h / 2, 0] },
-    { nx: 1, nz: 0, size: [t, h, d], pos: [w / 2 + t / 2, h / 2, 0] },
-  ].forEach((spec) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(...spec.size), new THREE.MeshStandardMaterial({ color: room.wall, roughness: 0.95 }));
-    m.position.set(...spec.pos);
-    m.receiveShadow = true;
-    roomGroup.add(m);
-    walls.push({ m, nx: spec.nx, nz: spec.nz });
+    // One wall per outline edge: the band between the outline and the outline
+    // pushed WALL_T outward, so corners (in and out) are mitred.
+    // Skirting boards (6 cm high, 3 cm deep) stay visible when walls auto-hide.
+    const outer = offsetPolygon(r.pts, WALL_T);
+    const inner = offsetPolygon(r.pts, -3);
+    const wallMat = new THREE.MeshStandardMaterial({ color: r.wall, roughness: 0.95 });
+    const skirtMat = new THREE.MeshStandardMaterial({ color: '#d9d4ca', roughness: 0.9 });
+    const n = r.pts.length;
+    edges(r.pts).forEach((e, i) => {
+      const j = (i + 1) % n;
+      const m = new THREE.Mesh(prismGeometry([r.pts[i], r.pts[j], outer[j], outer[i]], 0, r.h), wallMat);
+      m.receiveShadow = true;
+      roomGroup.add(m);
+      walls.push({ m, a: e.a, nx: e.nx, nz: e.nz });
+      roomGroup.add(new THREE.Mesh(prismGeometry([r.pts[i], r.pts[j], inner[j], inner[i]], 0, 6), skirtMat));
+    });
   });
 
-  // Skirting boards: stay visible when walls auto-hide.
-  const skirting = '#d9d4ca';
-  [
-    [w, 6, 3, 0, 3, -d / 2 + 1.5],
-    [w, 6, 3, 0, 3, d / 2 - 1.5],
-    [3, 6, d, -w / 2 + 1.5, 3, 0],
-    [3, 6, d, w / 2 - 1.5, 3, 0],
-  ].forEach(([sw, sh, sd, x, y, z]) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sd), new THREE.MeshStandardMaterial({ color: skirting, roughness: 0.9 }));
-    m.position.set(x, y, z);
-    roomGroup.add(m);
-  });
-
-  // Fit the sun's shadow frustum to the room.
-  const ext = Math.max(w, d) * 0.75;
+  // Fit the sun's shadow frustum to the rooms.
+  const b = bounds(rooms.map((r) => r.pts));
+  sun.position.set(b.cx + 300, 700, b.cz + 250);
+  sun.target.position.set(b.cx, 0, b.cz);
+  const ext = Math.max(b.w, b.d) * 0.75 + WALL_T;
   const sc = sun.shadow.camera;
   sc.left = -ext;
   sc.right = ext;
   sc.top = ext;
   sc.bottom = -ext;
   sc.updateProjectionMatrix();
+  plan.refresh();
 }
 
 // ---------- Camera presets ----------
 function setView(kind) {
-  const { w, d } = room;
+  $$('#views [data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === kind));
+  // Both controls listen on the canvas; only the active one may react.
+  controls.enabled = kind !== 'plan';
+  if (kind === 'plan') {
+    plan.enter();
+    return;
+  }
+  if (plan.active) plan.exit();
+  const { w, d, cx, cz } = bounds(rooms.map((r) => r.pts));
   const maxSide = Math.max(w, d);
   controls.minPolarAngle = 0;
   if (kind === 'top') {
@@ -363,19 +429,23 @@ function setView(kind) {
     camera.updateProjectionMatrix();
     const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const dist = Math.max(d / 2 / tan, w / 2 / (tan * camera.aspect)) * 1.12 + 40;
-    camera.position.set(0, dist, 0.01);
-    controls.target.set(0, 0, 0);
+    camera.position.set(cx, dist, cz + 0.01);
+    controls.target.set(cx, 0, cz);
   } else if (kind === 'eye') {
+    // Stand near the front of the current room, looking towards its back.
     camera.fov = 70;
     camera.updateProjectionMatrix();
-    camera.position.set(0, 165, d / 2 - 25);
-    controls.target.set(0, 125, -d / 2);
+    const r = currentRoom(), rb = bounds([r.pts]);
+    let eye = [rb.cx, rb.maxZ - 25];
+    if (!pointInPolygon(eye, r.pts)) eye = interiorPoint(r.pts);
+    camera.position.set(eye[0], 165, eye[1]);
+    controls.target.set(eye[0], 125, rb.minZ);
   } else {
     camera.fov = 45;
     camera.updateProjectionMatrix();
     const pullBack = 1 + Math.max(0, 1.15 - camera.aspect) * 1.3; // more room on narrow screens
-    camera.position.set(w * 0.55 * pullBack, maxSide * 0.95 * pullBack, d * 0.95 * pullBack);
-    controls.target.set(0, 40, 0);
+    camera.position.set(cx + w * 0.55 * pullBack, maxSide * 0.95 * pullBack, cz + d * 0.95 * pullBack);
+    controls.target.set(cx, 40, cz);
   }
   controls.update();
 }
@@ -425,7 +495,7 @@ const normDeg = (a) => ((a % 360) + 360) % 360;
 
 function rotateSelected(delta) {
   selected.rot = normDeg(selected.rot + delta);
-  clampToRoom(selected, room);
+  clampToRooms(selected, rooms);
   applyTransform(selected);
   commit();
   checkpoint();
@@ -439,12 +509,15 @@ $('#catalog').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-add]');
   if (!btn) return;
   const k = items.length % 5; // stagger new pieces so they don't stack exactly
-  const it = addItem(btn.dataset.add, { x: (k - 2) * 20, z: (k - 2) * 20 });
+  const r = currentRoom(), [cx, cz] = interiorPoint(r.pts);
+  const it = addItem(btn.dataset.add, { x: cx + (k - 2) * 20, z: cz + (k - 2) * 20 });
   if (CATALOG[it.type].opening) {
-    it.x = 0;
-    it.z = -room.d / 2 + it.d / 2;
+    // Onto the back wall of the room.
+    it.x = cx;
+    it.z = bounds([r.pts]).minZ;
+    snapOpeningToWall(it, [r]);
   }
-  clampToRoom(it, room);
+  clampToRooms(it, rooms);
   applyTransform(it);
   select(it, true);
   commit();
@@ -459,7 +532,7 @@ function bindItemField(sel, key, min, max, rebuild) {
     v = Math.max(min, Math.min(max, v));
     selected[key] = v;
     if (rebuild) rebuildItem(selected);
-    clampToRoom(selected, room);
+    clampToRooms(selected, rooms);
     applyTransform(selected);
     commit();
   });
@@ -474,7 +547,7 @@ $('#f-rot').addEventListener('input', (e) => {
   const v = parseFloat(e.target.value);
   if (!isFinite(v)) return;
   selected.rot = normDeg(v);
-  clampToRoom(selected, room);
+  clampToRooms(selected, rooms);
   applyTransform(selected);
   commit();
 });
@@ -496,7 +569,7 @@ $('#b-dup').addEventListener('click', () => {
   if (!selected) return;
   const s = selected;
   const copy = addItem(s.type, { w: s.w, d: s.d, h: s.h, y: s.y, x: s.x + 30, z: s.z + 30, rot: s.rot, color: s.color });
-  clampToRoom(copy, room);
+  clampToRooms(copy, rooms);
   applyTransform(copy);
   select(copy);
   commit();
@@ -514,6 +587,11 @@ $('#b-del').addEventListener('click', () => {
 window.addEventListener('keydown', (e) => {
   // Inside text fields, leave Ctrl+Z etc. to the browser's own field undo.
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  // Plan mode gets first go: typed lengths, Esc, deleting a selected corner…
+  if (plan.active && plan.keyDown(e)) {
+    e.preventDefault();
+    return;
+  }
   const mod = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
   if (mod && key === 'z') {
@@ -538,55 +616,85 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// Room tab. Width/depth inputs resize live while the room is a plain
+// rectangle; any other outline is edited in Plan view.
 function syncRoomInputs() {
-  $('#r-w').value = room.w;
-  $('#r-d').value = room.d;
-  $('#r-h').value = room.h;
-  $('#r-floor').value = room.floor;
-  $('#r-wall').value = room.wall;
-  $('#r-light').value = room.light;
-  $('#r-snap').value = room.snap;
+  const r = currentRoom(), rect = asRect(r.pts);
+  $('#r-rect').style.display = rect ? 'contents' : 'none';
+  $('#r-shape').style.display = rect ? 'none' : '';
+  if (rect) {
+    setIfNotFocused($('#r-w'), Math.round(rect.w * 10) / 10);
+    setIfNotFocused($('#r-d'), Math.round(rect.d * 10) / 10);
+  } else {
+    const m2 = Math.abs(signedArea(r.pts)) / 10000;
+    $('#r-shape-info').textContent = `${r.pts.length} corners · ${m2.toFixed(1)} m²`;
+  }
+  setIfNotFocused($('#r-h'), r.h);
+  $('#r-floor').value = r.floor;
+  $('#r-wall').value = r.wall;
+  $('#r-light').value = settings.light;
+  $('#r-snap').value = settings.snap;
 }
 
-function onRoomSizeChanged() {
-  buildRoom();
+// Call after changing any room outline: rebuild walls, keep furniture inside.
+function onRoomsChanged() {
+  buildRooms();
   items.forEach((it) => {
-    clampToRoom(it, room);
+    clampToRooms(it, rooms);
     applyTransform(it);
   });
+  syncRoomInputs();
   commit();
 }
 
 [
   ['#r-w', 'w', 150, 2000],
   ['#r-d', 'd', 150, 2000],
-  ['#r-h', 'h', 200, 500],
 ].forEach(([sel, key, min, max]) => {
   $(sel).addEventListener('input', (e) => {
     const v = parseFloat(e.target.value);
-    if (!isFinite(v) || v < min || v > max) return; // ignore while typing out-of-range values
-    room[key] = v;
-    onRoomSizeChanged();
+    const r = currentRoom(), rect = asRect(r.pts);
+    if (!rect || !isFinite(v) || v < min || v > max) return; // ignore while typing out-of-range values
+    rect[key] = v;
+    r.pts = rectPts(rect.w, rect.d, rect.cx, rect.cz);
+    onRoomsChanged();
   });
+});
+$('#r-h').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  if (!isFinite(v) || v < 200 || v > 500) return;
+  currentRoom().h = v;
+  onRoomsChanged();
+});
+$('#b-rect').addEventListener('click', () => {
+  const r = currentRoom(), b = bounds([r.pts]);
+  r.pts = rectPts(b.w, b.d, b.cx, b.cz);
+  onRoomsChanged();
+  checkpoint();
+});
+$('#b-plan').addEventListener('click', () => setView('plan'));
+$('#b-draw').addEventListener('click', () => {
+  setView('plan');
+  plan.startDraw();
 });
 
 $('#r-floor').addEventListener('input', (e) => {
-  room.floor = e.target.value;
-  buildRoom();
+  currentRoom().floor = e.target.value;
+  buildRooms();
   scheduleAutosave();
 });
 $('#r-wall').addEventListener('input', (e) => {
-  room.wall = e.target.value;
-  buildRoom();
+  currentRoom().wall = e.target.value;
+  buildRooms();
   scheduleAutosave();
 });
 $('#r-light').addEventListener('change', (e) => {
-  room.light = e.target.value;
+  settings.light = e.target.value;
   applyLighting();
   scheduleAutosave();
 });
 $('#r-snap').addEventListener('change', (e) => {
-  room.snap = parseFloat(e.target.value);
+  settings.snap = parseFloat(e.target.value);
   scheduleAutosave();
 });
 $('#b-clear').addEventListener('click', () => {
@@ -608,8 +716,27 @@ $$('#views [data-view]').forEach((b) => b.addEventListener('click', () => setVie
 // ---------- Save / load ----------
 const itemData = () => items.map(({ id, type, w, d, h, y, x, z, rot, color }) => ({ id, type, w, d, h, y, x, z, rot, color }));
 
+const roomData = () => rooms.map(({ id, name, pts, h, floor, wall }) => ({ id, name, pts, h, floor, wall }));
+
+// Layout JSON v2: { version, settings, rooms, items }.
+// v1 had a single rectangle: { room: { w, d, h, floor, wall, light, snap }, items }.
 function serialize() {
-  return JSON.stringify({ room, items: itemData() });
+  return JSON.stringify({ version: 2, settings, rooms: roomData(), items: itemData() });
+}
+
+// Rooms from either layout version. Outlines with < 3 corners are dropped.
+function parseRooms(parsed) {
+  if (Array.isArray(parsed.rooms)) {
+    const list = parsed.rooms
+      .filter((r) => Array.isArray(r.pts))
+      .map((r) => ({ ...r, pts: normalizePolygon(r.pts.filter((p) => isFinite(p[0]) && isFinite(p[1]))) }))
+      .filter((r) => r.pts.length >= 3)
+      .map(({ id, ...r }) => newRoom({ ...r, ...(Number.isInteger(id) ? { id } : {}) }));
+    if (list.length) return list;
+  }
+  const old = parsed.room || {};
+  const pick = (k) => (old[k] !== undefined ? { [k]: old[k] } : {});
+  return [newRoom({ pts: rectPts(old.w || 500, old.d || 400), ...pick('h'), ...pick('floor'), ...pick('wall') })];
 }
 
 function clearItems() {
@@ -624,8 +751,14 @@ function clearItems() {
 function loadLayout(data) {
   const parsed = typeof data === 'string' ? JSON.parse(data) : data;
   clearItems();
-  Object.assign(room, parsed.room || {});
-  buildRoom();
+  // Undo snapshots carry no settings, so the current light/snap stay.
+  const s = parsed.settings || parsed.room || {};
+  if (s.light) settings.light = s.light;
+  if (s.snap !== undefined) settings.snap = s.snap;
+  rooms = parseRooms(parsed);
+  rooms.forEach((r) => (nextRoomId = Math.max(nextRoomId, r.id + 1)));
+  plan.reset();
+  buildRooms();
   syncRoomInputs();
   applyLighting();
   (parsed.items || []).forEach((src) => {
@@ -698,10 +831,10 @@ $('#b-copy').addEventListener('click', async () => {
 
 function loadSample() {
   clearItems();
-  room.w = 500;
-  room.d = 400;
-  room.h = 260;
-  buildRoom();
+  const keep = rooms[0] ? { floor: rooms[0].floor, wall: rooms[0].wall } : {}; // colours survive, as before
+  rooms = [newRoom({ pts: rectPts(500, 400), h: 260, ...keep })];
+  plan.reset();
+  buildRooms();
   syncRoomInputs();
   const put = (type, x, z, rot, extra) => addItem(type, { x, z, rot, ...(extra || {}) });
   put('bed', -150, -110, 90, { color: '#8fa3b8' });
@@ -716,7 +849,7 @@ function loadSample() {
   put('window', -40, -196, 0);
   put('door', -200, 196, 180);
   items.forEach((it) => {
-    clampToRoom(it, room);
+    clampToRooms(it, rooms);
     applyTransform(it);
   });
 }
@@ -733,8 +866,7 @@ let redoStack = [];
 let lastState = null; // layout the stacks are relative to
 
 function historyState() {
-  const { light, snap, ...layoutRoom } = room;
-  return JSON.stringify({ room: layoutRoom, items: itemData() });
+  return JSON.stringify({ rooms: roomData(), items: itemData() });
 }
 
 function refreshUndoButtons() {
@@ -755,7 +887,7 @@ function checkpoint() {
 
 function restoreState(state) {
   const keepId = selected && selected.id;
-  loadLayout(state); // room in `state` has no light/snap, so those stay as they are
+  loadLayout(state); // `state` has no settings, so light/snap stay as they are
   lastState = historyState();
   select(items.find((i) => i.id === keepId) || null);
   scheduleAutosave();
@@ -763,7 +895,7 @@ function restoreState(state) {
 }
 
 function undo() {
-  if (drag) return;
+  if (drag || plan.busy()) return;
   checkpoint(); // record an edit that hasn't hit a checkpoint yet
   if (!undoStack.length) return;
   redoStack.push(lastState);
@@ -771,7 +903,7 @@ function undo() {
 }
 
 function redo() {
-  if (drag) return;
+  if (drag || plan.busy()) return;
   checkpoint(); // a new edit since the last undo clears the redo stack
   if (!redoStack.length) return;
   undoStack.push(lastState);
@@ -789,25 +921,28 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  plan.resize(w, h);
 }
 new ResizeObserver(resize).observe(view);
 
 function animate() {
-  controls.update();
-  // Hide walls between the camera and the room; hide all walls from (near) top view.
-  const cam = camera.position, hw = room.w / 2, hd = room.d / 2;
-  const topDown = controls.getPolarAngle() < 0.35;
+  activeControls().update();
+  // Hide walls whose outside faces the camera, and all walls from (near) top
+  // view and in Plan view (which draws them as a 2D band instead).
+  const cam = camera.position;
+  const topDown = plan.active || controls.getPolarAngle() < 0.35;
   walls.forEach((wall) => {
-    const camOutside =
-      (wall.nz === -1 && cam.z < -hd) || (wall.nz === 1 && cam.z > hd) || (wall.nx === -1 && cam.x < -hw) || (wall.nx === 1 && cam.x > hw);
+    const camOutside = (cam.x - wall.a[0]) * wall.nx + (cam.z - wall.a[1]) * wall.nz > 0;
     wall.m.visible = !camOutside && !topDown;
   });
-  renderer.render(scene, camera);
+  if (plan.active) plan.update();
+  renderer.render(scene, activeCamera());
   requestAnimationFrame(animate);
 }
 
 // ---------- Boot ----------
-buildRoom();
+rooms = [newRoom()];
+buildRooms();
 applyLighting();
 const autosaved = store.get('rp3d_auto');
 let restored = false;
