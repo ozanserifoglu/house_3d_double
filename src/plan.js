@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { edges, offsetPolygon, isSimple, closestOnSegment, normalizePolygon, interiorPoint, bounds, signedArea, dist, pointInPolygon, polygonsOverlap } from './polygon.js';
 import { wallPieces } from './walls.js';
+import { isWallLocked, isCornerPinned, toggleWallLock } from './locks.js';
 
 const FRUSTUM = 1000; // cm visible top to bottom at zoom 1
 const HIT = 10; // pick radius, px
@@ -19,7 +20,7 @@ const fmtLen = (cm) => {
   return `${r % 1 ? r.toFixed(1) : r} cm`;
 };
 
-const HINT_EDIT = 'Plan: drag a corner or wall · click a length to type it · double-click a wall to add a corner · right-drag to pan, wheel to zoom';
+const HINT_EDIT = 'Plan: drag a corner or wall · click a length to type it · double-click a wall to add a corner · select a wall + Lock wall to keep it fixed · right-drag to pan, wheel to zoom';
 const HINT_DRAW = 'Draw: click to place corners (they snap one wall away from other rooms) · type a length + Enter · Shift = any angle · click the first corner or press Enter to finish · Esc cancels';
 
 /**
@@ -91,6 +92,7 @@ export function createPlan(ctx) {
       <button class="btn" data-a="draw">Redraw room</button>
       <button class="btn" data-a="split">Add corner</button>
       <button class="btn" data-a="del">Delete corner</button>
+      <button class="btn" data-a="lock">Lock wall</button>
       <button class="btn" data-a="fit">Fit</button>
     </div>
     <div data-mode="draw">
@@ -434,16 +436,25 @@ export function createPlan(ctx) {
 
   // Typing a wall's length moves its end corner along the wall. If the next
   // wall is square to it, that whole next wall moves too, so it stays square.
+  // If that would move a locked wall, the start end moves instead (and the
+  // previous wall if square); if both ends are held, nothing changes.
   function setWallLength(room, i, L) {
-    const n = room.pts.length, E = edges(room.pts), e = E[i], next = E[(i + 1) % n];
-    const delta = L - e.len, pts = copyPts(room.pts);
-    const move = (k) => (pts[k] = [pts[k][0] + e.ux * delta, pts[k][1] + e.uz * delta]);
-    move((i + 1) % n);
-    if (n > 3 && Math.abs(e.ux * next.ux + e.uz * next.uz) < 1e-3) move((i + 2) % n);
+    if (isWallLocked(room, i)) return flash('This wall is locked: unlock it to change its length');
+    const n = room.pts.length, E = edges(room.pts), e = E[i];
+    const square = (f) => n > 3 && Math.abs(e.ux * f.ux + e.uz * f.uz) < 1e-3;
+    const fwd = [(i + 1) % n], back = [i];
+    if (square(E[(i + 1) % n])) fwd.push((i + 2) % n);
+    if (square(E[(i - 1 + n) % n])) back.push((i - 1 + n) % n);
+    const free = (ks) => ks.every((k) => !isCornerPinned(room, k));
+    const sign = free(fwd) ? 1 : free(back) ? -1 : 0;
+    if (!sign) return flash('Both ends of this wall are held by locked walls');
+    const delta = (L - e.len) * sign, pts = copyPts(room.pts);
+    for (const k of sign > 0 ? fwd : back) pts[k] = [pts[k][0] + e.ux * delta, pts[k][1] + e.uz * delta];
     applyOutline(room, pts, "That length would make walls cross");
   }
 
   function splitWall(room, i, p) {
+    if (isWallLocked(room, i)) return flash('This wall is locked: unlock it to add a corner');
     const e = edges(room.pts)[i];
     let t = p ? closestOnSegment(p, e.a, e.b).t : e.len / 2;
     t = Math.max(0.5, Math.min(e.len - 0.5, roundTo(t)));
@@ -456,6 +467,7 @@ export function createPlan(ctx) {
     const room = sel && roomById(sel.roomId);
     if (!room || sel.kind !== 'corner') return;
     if (room.pts.length <= 3) return flash('A room needs at least 3 corners');
+    if (isCornerPinned(room, sel.i)) return flash('This corner belongs to a locked wall');
     const pts = copyPts(room.pts);
     pts.splice(sel.i, 1);
     if (applyOutline(room, pts, 'Removing that corner would make walls cross')) select(null);
@@ -501,6 +513,9 @@ export function createPlan(ctx) {
     const room = sel && roomById(sel.roomId);
     bar.querySelector('[data-a="split"]').disabled = !(room && sel.kind === 'wall');
     bar.querySelector('[data-a="del"]').disabled = !(room && sel.kind === 'corner' && room.pts.length > 3);
+    const lockBtn = bar.querySelector('[data-a="lock"]');
+    lockBtn.disabled = !(room && sel.kind === 'wall');
+    lockBtn.textContent = room && sel.kind === 'wall' && isWallLocked(room, sel.i) ? 'Unlock wall' : 'Lock wall';
     bar.querySelector('[data-a="close"]').disabled = draft.length < 3;
     bar.querySelector('[data-a="undo-pt"]').disabled = !draft.length;
   }
@@ -511,7 +526,11 @@ export function createPlan(ctx) {
     else if (a === 'draw') startDraw(ctx.getSelectedRoomId());
     else if (a === 'split' && room && sel.kind === 'wall') splitWall(room, sel.i, null);
     else if (a === 'del') deleteCorner();
-    else if (a === 'fit') fit();
+    else if (a === 'lock' && room && sel.kind === 'wall') {
+      toggleWallLock(room, sel.i);
+      ctx.onDone(); // saved + undo step
+      renderBar();
+    } else if (a === 'fit') fit();
     else if (a === 'undo-pt') undoPoint();
     else if (a === 'close') finishDraw();
     else if (a === 'cancel') cancelDraw();
@@ -544,7 +563,11 @@ export function createPlan(ctx) {
       return true;
     }
     select({ roomId: h.roomId, kind: h.kind, i: h.i });
-    drag = { kind: h.kind, roomId: h.roomId, i: h.i, startS: s, start: p, orig: copyPts(roomById(h.roomId).pts), moved: false, valid: true };
+    const room = roomById(h.roomId);
+    drag = { kind: h.kind, roomId: h.roomId, i: h.i, startS: s, start: p, orig: copyPts(room.pts), moved: false, valid: true };
+    // Selecting still works; moving is refused once the pointer actually moves.
+    if (h.kind === 'corner' && isCornerPinned(room, h.i)) drag.blocked = 'This corner belongs to a locked wall';
+    if (h.kind === 'wall' && isWallLocked(room, h.i)) drag.blocked = 'This wall is locked';
     return true;
   }
 
@@ -553,12 +576,26 @@ export function createPlan(ctx) {
     pointerP = p;
     shiftHeld = e.shiftKey;
     if (drag) {
+      if (drag.dead) return true;
       const room = roomById(drag.roomId);
       if (!drag.moved) {
         if (Math.hypot(s[0] - drag.startS[0], s[1] - drag.startS[1]) < 3) return true;
+        if (!drag.blocked && drag.kind === 'wall') {
+          // An end that slides along a locked neighbour would change that wall.
+          // (A straight-on neighbour gets a jog instead and keeps its corners.)
+          prepareWallDrag();
+          const n = room.pts.length;
+          if ((drag.dirA && isWallLocked(room, (drag.i - 1 + n) % n)) || (drag.dirB && isWallLocked(room, (drag.i + 1) % n))) {
+            drag.blocked = 'A wall next to it is locked: unlock it to move this one';
+          }
+        }
+        if (drag.blocked) {
+          flash(drag.blocked);
+          drag.dead = true; // ignore the rest of this press (no pan either)
+          return true;
+        }
         drag.moved = true;
-        if (drag.kind === 'wall') prepareWallDrag();
-        else drag.work = copyPts(drag.orig);
+        if (drag.kind !== 'wall') drag.work = copyPts(drag.orig);
       }
       if (drag.kind === 'corner') drag.work[drag.i] = snapCorner(p, room, drag.work, drag.i, e.shiftKey);
       else moveWall(p, e.shiftKey);
@@ -592,7 +629,13 @@ export function createPlan(ctx) {
       const pr = press;
       press = null;
       controls.enabled = true;
-      if (pr.label) openEditor(pr.label.roomId, pr.label.i);
+      if (pr.label) {
+        const r = roomById(pr.label.roomId);
+        if (r && isWallLocked(r, pr.label.i)) {
+          select({ roomId: r.id, kind: 'wall', i: pr.label.i }); // so Unlock is one tap away
+          flash('This wall is locked: unlock it to change its length');
+        } else openEditor(pr.label.roomId, pr.label.i);
+      }
       else {
         const { s, p } = eventInfo(e);
         if (Math.hypot(s[0] - pr.s[0], s[1] - pr.s[1]) < 6) addDraftPoint(snapDraft(p, e.shiftKey));
@@ -671,6 +714,8 @@ export function createPlan(ctx) {
       edges(pts).forEach((e, i) => {
         const a = scr[i], b = scr[(i + 1) % n];
         const on = sel && sel.roomId === r.id && sel.kind === 'wall' && sel.i === i;
+        const locked = isWallLocked(r, i);
+        if (locked) out.push(`<line class="plk" x1="${f1(a[0])}" y1="${f1(a[1])}" x2="${f1(b[0])}" y2="${f1(b[1])}"/>`);
         if (on) out.push(`<line class="psel" x1="${f1(a[0])}" y1="${f1(a[1])}" x2="${f1(b[0])}" y2="${f1(b[1])}"/>`);
         if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 34) return; // too short on screen for a label
         let ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
@@ -678,14 +723,14 @@ export function createPlan(ctx) {
         if (ang <= -Math.PI / 2 + 1e-6) ang += Math.PI;
         // Screen x/y follow world x/z here, so the inward normal is (-nx, -nz).
         const x = (a[0] + b[0]) / 2 - e.nx * 16, y = (a[1] + b[1]) / 2 - e.nz * 16;
-        const text = fmtLen(e.len), w = text.length * 7 + 12;
+        const text = (locked ? '🔒 ' : '') + fmtLen(e.len), w = text.length * 7 + 12;
         labels.push({ roomId: r.id, i, x, y, a: ang, w });
         const hov = (hover && hover.kind === 'label' && hover.roomId === r.id && hover.i === i) || on ? ' hov' : '';
-        out.push(`<g class="pl${hov}" transform="translate(${f1(x)},${f1(y)}) rotate(${(ang * 180 / Math.PI).toFixed(2)})"><rect x="${-w / 2}" y="-9" width="${w}" height="18" rx="4"/><text y="4">${text}</text></g>`);
+        out.push(`<g class="pl${hov}${locked ? ' lk' : ''}" transform="translate(${f1(x)},${f1(y)}) rotate(${(ang * 180 / Math.PI).toFixed(2)})"><rect x="${-w / 2}" y="-9" width="${w}" height="18" rx="4"/><text y="4">${text}</text></g>`);
       });
       scr.forEach((q, i) => {
         const on = sel && sel.roomId === r.id && sel.kind === 'corner' && sel.i === i;
-        out.push(`<circle class="pc${on ? ' on' : ''}" cx="${f1(q[0])}" cy="${f1(q[1])}" r="${on ? 6 : 4.5}"/>`);
+        out.push(`<circle class="pc${on ? ' on' : ''}${isCornerPinned(r, i) ? ' lk' : ''}" cx="${f1(q[0])}" cy="${f1(q[1])}" r="${on ? 6 : 4.5}"/>`);
       });
       const c = toScreen(interiorPoint(pts));
       const name = String(r.name).replace(/[&<>]/g, (ch) => `&#${ch.charCodeAt(0)};`);

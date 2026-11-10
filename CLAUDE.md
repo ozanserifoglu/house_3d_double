@@ -23,13 +23,19 @@ and preview new furniture. Simple > fancy.
   A missing builder logs `missing builder` at load (that once caused a black screen).
 - Item: `{id,type,w,d,h,y(lift),x,z,rot(deg),color,obj}`.
   `rot` → `group.rotation.y = rot·π/180`; `layout-math.js` corners use the same mapping.
-- Room: `{id,name,pts:[[x,z],...],h,floor,wall}` in `rooms[]`. `pts` = the
+- Room: `{id,name,pts:[[x,z],...],h,floor,wall,locked}` in `rooms[]`. `pts` = the
   **inside** outline (tape-measured), positive shoelace area, so edge a→b's
   outward normal is `(uz,-ux)` (`polygon.js`). Walls (`WALL_T` = 12) are
   extruded outward with mitred corners. `currentRoom()` = the selected room
   (`selectedRoomId`, UI state, not saved). After changing an outline call
   `onRoomsChanged()` (rebuild walls, re-clamp furniture, panel, autosave) +
   `checkpoint()`. Rooms must not overlap (`polygonsOverlap`).
+- Locked walls (`locks.js`): `room.locked` = end-point pairs of locked walls.
+  A locked wall's corners never move, so locks are matched by coordinates
+  (survives corners added/removed elsewhere). Plan refuses any drag/length/
+  corner edit that would move them (typing a length moves the free end
+  instead); the Room tab's W/D and Reset refuse while a room has locks.
+  `onRoomsChanged()` prunes locks whose wall left the outline (redraw).
 - Walls (`walls.js` `wallPieces`): facing edges of two rooms 0.5–60 cm apart
   become ONE shared wall filling the gap (built by the lower room id, its
   colour/height); the rest of each edge is a 12 cm outer wall. Mitres use each
@@ -59,6 +65,7 @@ and preview new furniture. Simple > fancy.
 - Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`
   (in-memory fallback). Layout JSON v2 =
   `{version:2, settings:{light,snap,innerWallT}, rooms:[...], items:[...without obj]}`.
+  `rooms[].locked` is optional (older saves load with no locks).
   v1 `{room:{w,d,h,floor,wall,light,snap}, items}` still loads (→ rectangle).
 
 ## Constraints so far
