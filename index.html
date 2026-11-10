@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Room Planner 3D</title>
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<div id="app">
+  <div id="view">
+    <div id="views">
+      <button class="btn" data-view="3d">3D</button>
+      <button class="btn" data-view="top">Top</button>
+      <button class="btn" data-view="eye">Eye level</button>
+    </div>
+    <div id="history">
+      <button class="btn" id="b-undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+      <button class="btn" id="b-redo" title="Redo (Ctrl+Shift+Z or Ctrl+Y)" disabled>Redo ↷</button>
+    </div>
+    <div id="hint">Drag furniture to move it · empty space + drag to orbit · pinch to zoom</div>
+  </div>
+  <div id="panel">
+    <div id="tabs">
+      <button data-tab="add" class="on">Add</button>
+      <button data-tab="item">Item</button>
+      <button data-tab="room">Room</button>
+      <button data-tab="save">Layouts</button>
+    </div>
+
+    <div class="tab on" id="tab-add">
+      <div class="grid" id="catalog"></div>
+    </div>
+
+    <div class="tab" id="tab-item">
+      <div id="item-empty" class="muted">Tap a piece of furniture in the scene (or add one) to edit it.</div>
+      <div id="item-form" style="display:none">
+        <div class="title"><span id="item-name"></span><span id="item-warn" class="warn"></span></div>
+        <div class="row">
+          <label class="f">Width cm<input id="f-w" type="number" inputmode="numeric" step="5"></label>
+          <label class="f">Depth cm<input id="f-d" type="number" inputmode="numeric" step="5"></label>
+          <label class="f">Height cm<input id="f-h" type="number" inputmode="numeric" step="5"></label>
+          <label class="f">Lifted cm<input id="f-y" type="number" inputmode="numeric" step="5"></label>
+        </div>
+        <div class="row">
+          <label class="f" style="max-width:90px">Color<input id="f-color" type="color"></label>
+          <label class="f" style="max-width:100px">Angle °<input id="f-rot" type="number" inputmode="numeric" step="15"></label>
+          <button class="btn" data-rot="-90">⟲ 90</button>
+          <button class="btn" data-rot="-15">⟲ 15</button>
+          <button class="btn" data-rot="15">15 ⟳</button>
+          <button class="btn" data-rot="90">90 ⟳</button>
+        </div>
+        <div class="row">
+          <button class="btn" id="b-dup">Duplicate</button>
+          <button class="btn danger" id="b-del">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab" id="tab-room">
+      <div class="row">
+        <label class="f">Width cm<input id="r-w" type="number" inputmode="numeric" step="10"></label>
+        <label class="f">Depth cm<input id="r-d" type="number" inputmode="numeric" step="10"></label>
+        <label class="f">Ceiling cm<input id="r-h" type="number" inputmode="numeric" step="10"></label>
+      </div>
+      <div class="row">
+        <label class="f">Floor<input id="r-floor" type="color"></label>
+        <label class="f">Walls<input id="r-wall" type="color"></label>
+        <label class="f">Lighting
+          <select id="r-light"><option value="day">Day</option><option value="evening">Evening</option><option value="night">Night</option></select>
+        </label>
+        <label class="f">Snap
+          <select id="r-snap"><option value="0">Off</option><option value="1">1 cm</option><option value="5">5 cm</option><option value="10">10 cm</option></select>
+        </label>
+      </div>
+      <div class="row">
+        <button class="btn danger" id="b-clear">Remove all furniture</button>
+        <button class="btn" id="b-sample">Load sample</button>
+      </div>
+      <div class="muted">Doors and windows snap to the nearest wall when you drag them close. Furniture turns red-outlined when it overlaps something.</div>
+    </div>
+
+    <div class="tab" id="tab-save">
+      <div class="muted" style="margin-bottom:8px">Save up to three arrangements and flip between them to compare.</div>
+      <div id="slots"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="b-export">Export layout text</button>
+        <button class="btn" id="b-import">Import from text</button>
+        <button class="btn" id="b-copy">Copy</button>
+      </div>
+      <textarea id="io" placeholder="Layout text appears here. Paste a saved layout and tap Import."></textarea>
+    </div>
+  </div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
