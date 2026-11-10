@@ -9,6 +9,12 @@ and preview new furniture. Simple > fancy.
   management were tuned on this version; check visuals if upgrading).
 - All lengths in **cm**. Floor is y = 0, room centred on the origin.
 
+## Git workflow
+- Every new feature gets its own branch off `master` (e.g. `feature/door-holes`),
+  created before the first change. Don't build features directly on `master`.
+- Remote: `origin` = github.com/ozanserifoglu/house_3d_double (SSH).
+  Commit/push only when asked.
+
 ## Architecture
 - `CATALOG[type]` = defaults `{label,w,d,h,color,y?,noCol?,opening?}`.
   `noCol` skips overlap checks; `opening` = door/window, snaps to walls.
