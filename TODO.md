@@ -29,7 +29,10 @@ These were converted one-to-one from the minified build but not clicked through 
 - [ ] Walls between rooms that are not parallel (angled neighbours) are not merged: each room keeps its own outer wall there.
 - [ ] Rooms can't overlap, but nothing stops two rooms from being placed far apart (no "must touch" rule).
 - [ ] Plan view on touch: while drawing, one finger places corners, so you can't pan/pinch mid-drawing (zoom first, or finish and edit).
-- [ ] Typing a wall length moves the wall's *end* corner (in drawing order), and the next wall too if it is square. There's no choice of which end moves.
+- [ ] Typing a wall length moves the wall's *end* corner (in drawing order), and the next wall too if it is square. Locking a wall makes it move the other end instead; there's still no direct choice of which end moves.
+- [ ] Locked walls: dragging a wall whose (non-straight) neighbour is locked is refused rather than solved some other way; a corner drag simply refuses on a locked wall's corner.
+- [ ] Locked walls: "Redraw room" drops the locks of walls the new outline doesn't reuse exactly (no warning).
+- [ ] Room tab: when a W/D change is refused (overlap, locked walls) the field keeps the typed number until the panel refreshes (pre-existing for overlaps).
 - [ ] Walls of an inside corner (L-shaped room) auto-hide by the same "camera beyond the wall's line" rule, so from some angles an inner wall hides while you could still see it.
 - [ ] Very short walls between two inside corners can give odd mitred wall geometry (cosmetic).
 - [ ] Furniture is clamped to the room its centre is in; a piece too big for every spot is centred and sticks out (same rule as the old rectangle).

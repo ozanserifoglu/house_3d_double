@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CATALOG, BUILD } from './catalog.js';
 import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap } from './layout-math.js';
 import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon, polygonsOverlap } from './polygon.js';
+import { pruneLocks, parseLocks } from './locks.js';
 import { createPlan } from './plan.js';
 import { wallPieces } from './walls.js';
 
@@ -36,7 +37,7 @@ const settings = { light: 'day', snap: 5, innerWallT: 10 };
 let rooms = [];
 let nextRoomId = 1;
 const WALL_T = 12; // outer wall thickness; walls sit outside the outline
-const newRoom = (props) => ({ id: nextRoomId++, name: 'Room', pts: rectPts(500, 400), h: 260, floor: '#c9b79c', wall: '#f2efe9', ...props });
+const newRoom = (props) => ({ id: nextRoomId++, name: 'Room', pts: rectPts(500, 400), h: 260, floor: '#c9b79c', wall: '#f2efe9', locked: [], ...props });
 function nextRoomName() {
   let k = rooms.length + 1;
   while (rooms.some((r) => r.name === `Room ${k}`)) k++;
@@ -683,6 +684,7 @@ function roomMessage(text) {
 
 // Call after changing any room outline: rebuild walls, keep furniture inside.
 function onRoomsChanged() {
+  rooms.forEach(pruneLocks); // an outline redrawn or reset loses its old walls' locks
   buildRooms();
   items.forEach((it) => {
     clampToRooms(it, rooms);
@@ -700,6 +702,7 @@ function onRoomsChanged() {
     const v = parseFloat(e.target.value);
     const r = currentRoom(), rect = asRect(r.pts);
     if (!rect || !isFinite(v) || v < min || v > max) return; // ignore while typing out-of-range values
+    if (r.locked.length) return roomMessage('This room has locked walls: unlock them in Plan view to resize it here.');
     rect[key] = v;
     const pts = rectPts(rect.w, rect.d, rect.cx, rect.cz);
     if (overlapsOthers(pts, r.id)) return roomMessage('That size would overlap another room.');
@@ -715,6 +718,7 @@ $('#r-h').addEventListener('input', (e) => {
 });
 $('#b-rect').addEventListener('click', () => {
   const r = currentRoom(), b = bounds([r.pts]);
+  if (r.locked.length) return roomMessage('This room has locked walls: unlock them in Plan view first.');
   const pts = rectPts(b.w, b.d, b.cx, b.cz);
   if (overlapsOthers(pts, r.id)) return roomMessage('The rectangle would overlap another room.');
   r.pts = pts;
@@ -803,7 +807,7 @@ $$('#views [data-view]').forEach((b) => b.addEventListener('click', () => setVie
 // ---------- Save / load ----------
 const itemData = () => items.map(({ id, type, w, d, h, y, x, z, rot, color }) => ({ id, type, w, d, h, y, x, z, rot, color }));
 
-const roomData = () => rooms.map(({ id, name, pts, h, floor, wall }) => ({ id, name, pts, h, floor, wall }));
+const roomData = () => rooms.map(({ id, name, pts, h, floor, wall, locked }) => ({ id, name, pts, h, floor, wall, locked }));
 
 // Layout JSON v2: { version, settings, rooms, items }.
 // v1 had a single rectangle: { room: { w, d, h, floor, wall, light, snap }, items }.
@@ -816,7 +820,7 @@ function parseRooms(parsed) {
   if (Array.isArray(parsed.rooms)) {
     const list = parsed.rooms
       .filter((r) => Array.isArray(r.pts))
-      .map((r) => ({ ...r, pts: normalizePolygon(r.pts.filter((p) => isFinite(p[0]) && isFinite(p[1]))) }))
+      .map((r) => ({ ...r, pts: normalizePolygon(r.pts.filter((p) => isFinite(p[0]) && isFinite(p[1]))), locked: parseLocks(r.locked) }))
       .filter((r) => r.pts.length >= 3)
       .map(({ id, ...r }) => newRoom({ ...r, ...(Number.isInteger(id) ? { id } : {}) }));
     if (list.length) return list;
@@ -844,6 +848,7 @@ function loadLayout(data) {
   if (s.snap !== undefined) settings.snap = s.snap;
   if (s.innerWallT > 0) settings.innerWallT = s.innerWallT;
   rooms = parseRooms(parsed);
+  rooms.forEach(pruneLocks);
   rooms.forEach((r) => (nextRoomId = Math.max(nextRoomId, r.id + 1)));
   plan.reset();
   buildRooms();
