@@ -20,8 +20,14 @@ These were converted one-to-one from the minified build but not clicked through 
 - [ ] New pieces from the catalog always appear in the same 5 staggered spots (`items.length % 5`). They can land on top of existing furniture.
 - [ ] Saved layouts are per site (localStorage). Layouts from the claude.ai artifact must be moved over by hand: Export → Copy there, Import here.
 
-## Room drawing (step 1 done: one room of any shape)
-- [ ] **Step 2: multiple rooms, connected wall to wall.** Add/select/rename/delete rooms; while drawing, snap edges to another room's outer wall face (gap = wall thickness, default 10 cm); build one wall on the shared stretch; Room tab edits the selected room; Eye level uses it.
+## Room drawing (steps 1 + 2 done: rooms of any shape, connected by shared walls)
+- [x] ~~Step 2: multiple rooms, connected wall to wall.~~ Done: room list (add/select/rename/delete), gap snapping, one shared wall per facing stretch, no overlaps.
+- [ ] No openings between rooms: a shared wall is solid, so Eye level can't look from one room into the next (roadmap #4, real door holes).
+- [ ] A shared wall takes the owning (lower-id) room's wall colour and ceiling height, on both of its faces.
+- [ ] Where a shared wall (e.g. 10 cm) meets a 12 cm outer wall, the 2 cm step overlaps the neighbour's corner wall; coincident faces there can flicker slightly (cosmetic).
+- [ ] Dragging furniture across a shared wall moves it into the other room as soon as its centre crosses (no doorway check).
+- [ ] Walls between rooms that are not parallel (angled neighbours) are not merged: each room keeps its own outer wall there.
+- [ ] Rooms can't overlap, but nothing stops two rooms from being placed far apart (no "must touch" rule).
 - [ ] Plan view on touch: while drawing, one finger places corners, so you can't pan/pinch mid-drawing (zoom first, or finish and edit).
 - [ ] Typing a wall length moves the wall's *end* corner (in drawing order), and the next wall too if it is square. There's no choice of which end moves.
 - [ ] Walls of an inside corner (L-shaped room) auto-hide by the same "camera beyond the wall's line" rule, so from some angles an inner wall hides while you could still see it.
@@ -35,7 +41,7 @@ These were converted one-to-one from the minified build but not clicked through 
 - [ ] Outlines are disposed and recreated on every pointer move while dragging (`refreshOutlines`).
 - [ ] `applyLighting()` runs on every `rebuildItem` call and walks all items to find lamp lights.
 - [ ] Undo/redo restores via `loadLayout`, which rebuilds every item and the room. Instant at this size; switch to per-item diffs if layouts get large or GLB models are slow to rebuild.
-- [ ] `main.js` holds all mutable state as module globals. Fine for now; revisit if GLB import or multi-room makes it hard to follow.
+- [ ] `main.js` keeps growing with shared state at the top level (now including rooms and room selection). Move rooms and selection into their own module before the GLB-import work.
 
 ## Not done
 - [ ] No single-file offline build of the new source. `reference/room-planner-v1-offline.html` still works on its own (see `vite-plugin-singlefile` if needed).

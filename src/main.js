@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CATALOG, BUILD } from './catalog.js';
 import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap } from './layout-math.js';
-import { edges, offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon } from './polygon.js';
+import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon, polygonsOverlap } from './polygon.js';
 import { createPlan } from './plan.js';
+import { wallPieces } from './walls.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -28,15 +29,29 @@ const store = {
 };
 
 // ---------- State (all lengths in cm) ----------
-// View preferences, not part of undo history.
-const settings = { light: 'day', snap: 5 };
+// View/drawing preferences, not part of undo history. innerWallT = the gap
+// left between rooms when snapping one to another (the wall between them).
+const settings = { light: 'day', snap: 5, innerWallT: 10 };
 // Room: { id, name, pts: [[x, z], ...] inside outline (see polygon.js), h, floor, wall }
 let rooms = [];
 let nextRoomId = 1;
 const WALL_T = 12; // outer wall thickness; walls sit outside the outline
 const newRoom = (props) => ({ id: nextRoomId++, name: 'Room', pts: rectPts(500, 400), h: 260, floor: '#c9b79c', wall: '#f2efe9', ...props });
-// The room the Room tab edits. One room for now; multi-room comes next.
-const currentRoom = () => rooms[0];
+function nextRoomName() {
+  let k = rooms.length + 1;
+  while (rooms.some((r) => r.name === `Room ${k}`)) k++;
+  return `Room ${k}`;
+}
+// The room the Room tab edits and Eye level stands in (UI state, not saved).
+let selectedRoomId = null;
+const currentRoom = () => rooms.find((r) => r.id === selectedRoomId) || rooms[0];
+function selectRoom(id) {
+  selectedRoomId = id;
+  syncRoomInputs();
+  plan.refresh();
+}
+// Would this outline overlap any room other than `exceptId`?
+const overlapsOthers = (pts, exceptId) => rooms.some((r) => r.id !== exceptId && polygonsOverlap(pts, r.pts));
 // Item: { id, type, w, d, h, y (lift), x, z, rot (deg), color, obj }
 let items = [];
 let selected = null;
@@ -191,14 +206,24 @@ const plan = createPlan({
   wallT: WALL_T,
   getRooms: () => rooms,
   getSnap: () => settings.snap,
+  getGap: () => settings.innerWallT,
+  getSelectedRoomId: () => currentRoom().id,
+  onSelectRoom: (id) => selectRoom(id),
   onLive: () => buildRooms(), // outline changing mid-drag
   onDone: () => {
     onRoomsChanged();
     checkpoint();
   },
-  // A newly drawn outline replaces the current room's.
-  onDrawn: (pts) => {
-    currentRoom().pts = pts;
+  // A drawn outline replaces room `targetId`'s, or (null) becomes a new room.
+  onDrawn: (pts, targetId) => {
+    const target = rooms.find((r) => r.id === targetId);
+    if (target) target.pts = pts;
+    else {
+      const from = currentRoom();
+      const room = newRoom({ pts, name: nextRoomName(), h: from.h, floor: from.floor, wall: from.wall });
+      rooms.push(room);
+      selectedRoomId = room.id;
+    }
     onRoomsChanged();
     checkpoint();
   },
@@ -379,22 +404,26 @@ function buildRooms() {
     floor.receiveShadow = true;
     roomGroup.add(floor);
 
-    // One wall per outline edge: the band between the outline and the outline
-    // pushed WALL_T outward, so corners (in and out) are mitred.
-    // Skirting boards (6 cm high, 3 cm deep) stay visible when walls auto-hide.
-    const outer = offsetPolygon(r.pts, WALL_T);
+    // Skirting boards (6 cm high, 3 cm deep) along every edge; they stay
+    // visible when walls auto-hide.
     const inner = offsetPolygon(r.pts, -3);
-    const wallMat = new THREE.MeshStandardMaterial({ color: r.wall, roughness: 0.95 });
     const skirtMat = new THREE.MeshStandardMaterial({ color: '#d9d4ca', roughness: 0.9 });
     const n = r.pts.length;
-    edges(r.pts).forEach((e, i) => {
+    r.pts.forEach((p, i) => {
       const j = (i + 1) % n;
-      const m = new THREE.Mesh(prismGeometry([r.pts[i], r.pts[j], outer[j], outer[i]], 0, r.h), wallMat);
-      m.receiveShadow = true;
-      roomGroup.add(m);
-      walls.push({ m, a: e.a, nx: e.nx, nz: e.nz });
       roomGroup.add(new THREE.Mesh(prismGeometry([r.pts[i], r.pts[j], inner[j], inner[i]], 0, 6), skirtMat));
     });
+  });
+
+  // Walls: outer walls WALL_T thick, one shared wall where rooms face each
+  // other (see walls.js). A shared wall takes its owning room's colour/height.
+  const wallMats = new Map(rooms.map((r) => [r.id, new THREE.MeshStandardMaterial({ color: r.wall, roughness: 0.95 })]));
+  const heights = new Map(rooms.map((r) => [r.id, r.h]));
+  wallPieces(rooms, WALL_T).forEach((p) => {
+    const m = new THREE.Mesh(prismGeometry(p.quad, 0, heights.get(p.roomId)), wallMats.get(p.roomId));
+    m.receiveShadow = true;
+    roomGroup.add(m);
+    walls.push({ m, a: p.a, nx: p.nx, nz: p.nz, shared: p.shared });
   });
 
   // Fit the sun's shadow frustum to the rooms.
@@ -630,10 +659,26 @@ function syncRoomInputs() {
     $('#r-shape-info').textContent = `${r.pts.length} corners · ${m2.toFixed(1)} m²`;
   }
   setIfNotFocused($('#r-h'), r.h);
+  setIfNotFocused($('#r-name'), r.name);
+  setIfNotFocused($('#r-gap'), settings.innerWallT);
   $('#r-floor').value = r.floor;
   $('#r-wall').value = r.wall;
   $('#r-light').value = settings.light;
   $('#r-snap').value = settings.snap;
+  $('#b-del-room').disabled = rooms.length < 2;
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  $('#room-list').innerHTML =
+    rooms
+      .map((q) => `<button class="chip${q === r ? ' on' : ''}" data-room="${q.id}"><span>${esc(q.name)}</span><small>${(Math.abs(signedArea(q.pts)) / 10000).toFixed(1)} m²</small></button>`)
+      .join('') + '<button class="chip add" id="b-add-room"><span>+ Add room</span><small>draw it in Plan</small></button>';
+}
+
+// Short-lived note under the room fields (e.g. a refused size change).
+let roomMsgTimer = null;
+function roomMessage(text) {
+  $('#r-msg').textContent = text;
+  clearTimeout(roomMsgTimer);
+  roomMsgTimer = setTimeout(() => ($('#r-msg').textContent = ''), 3000);
 }
 
 // Call after changing any room outline: rebuild walls, keep furniture inside.
@@ -656,7 +701,9 @@ function onRoomsChanged() {
     const r = currentRoom(), rect = asRect(r.pts);
     if (!rect || !isFinite(v) || v < min || v > max) return; // ignore while typing out-of-range values
     rect[key] = v;
-    r.pts = rectPts(rect.w, rect.d, rect.cx, rect.cz);
+    const pts = rectPts(rect.w, rect.d, rect.cx, rect.cz);
+    if (overlapsOthers(pts, r.id)) return roomMessage('That size would overlap another room.');
+    r.pts = pts;
     onRoomsChanged();
   });
 });
@@ -668,14 +715,54 @@ $('#r-h').addEventListener('input', (e) => {
 });
 $('#b-rect').addEventListener('click', () => {
   const r = currentRoom(), b = bounds([r.pts]);
-  r.pts = rectPts(b.w, b.d, b.cx, b.cz);
+  const pts = rectPts(b.w, b.d, b.cx, b.cz);
+  if (overlapsOthers(pts, r.id)) return roomMessage('The rectangle would overlap another room.');
+  r.pts = pts;
   onRoomsChanged();
   checkpoint();
 });
 $('#b-plan').addEventListener('click', () => setView('plan'));
 $('#b-draw').addEventListener('click', () => {
   setView('plan');
-  plan.startDraw();
+  plan.startDraw(currentRoom().id);
+});
+
+// Room list: pick a room, or draw a new one.
+$('#room-list').addEventListener('click', (e) => {
+  if (e.target.closest('#b-add-room')) {
+    setView('plan');
+    plan.startDraw(null);
+    return;
+  }
+  const b = e.target.closest('[data-room]');
+  if (b) selectRoom(+b.dataset.room);
+});
+$('#r-name').addEventListener('input', (e) => {
+  currentRoom().name = e.target.value.trim() || 'Room';
+  syncRoomInputs();
+  plan.refresh();
+  scheduleAutosave();
+});
+// Deleting a room takes the furniture standing in it along (undo restores both).
+$('#b-del-room').addEventListener('click', () => {
+  const r = currentRoom();
+  if (rooms.length < 2) return;
+  const inside = items.filter((it) => pointInPolygon([it.x, it.z], r.pts));
+  const what = inside.length ? ` and the ${inside.length} piece${inside.length > 1 ? 's' : ''} in it` : '';
+  if (!confirm(`Delete ${r.name}${what}? (Undo brings it back.)`)) return;
+  inside.forEach(removeItem);
+  if (selected && inside.includes(selected)) selected = null;
+  rooms = rooms.filter((q) => q !== r);
+  selectedRoomId = null;
+  plan.reset();
+  onRoomsChanged();
+  checkpoint();
+});
+$('#r-gap').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  if (!isFinite(v) || v < 1 || v > 60) return;
+  settings.innerWallT = v;
+  scheduleAutosave();
 });
 
 $('#r-floor').addEventListener('input', (e) => {
@@ -755,6 +842,7 @@ function loadLayout(data) {
   const s = parsed.settings || parsed.room || {};
   if (s.light) settings.light = s.light;
   if (s.snap !== undefined) settings.snap = s.snap;
+  if (s.innerWallT > 0) settings.innerWallT = s.innerWallT;
   rooms = parseRooms(parsed);
   rooms.forEach((r) => (nextRoomId = Math.max(nextRoomId, r.id + 1)));
   plan.reset();
@@ -932,7 +1020,8 @@ function animate() {
   const cam = camera.position;
   const topDown = plan.active || controls.getPolarAngle() < 0.35;
   walls.forEach((wall) => {
-    const camOutside = (cam.x - wall.a[0]) * wall.nx + (cam.z - wall.a[1]) * wall.nz > 0;
+    // Shared walls are inside the apartment: they only hide from above.
+    const camOutside = !wall.shared && (cam.x - wall.a[0]) * wall.nx + (cam.z - wall.a[1]) * wall.nz > 0;
     wall.m.visible = !camOutside && !topDown;
   });
   if (plan.active) plan.update();

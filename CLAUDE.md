@@ -20,9 +20,19 @@ and preview new furniture. Simple > fancy.
 - Room: `{id,name,pts:[[x,z],...],h,floor,wall}` in `rooms[]`. `pts` = the
   **inside** outline (tape-measured), positive shoelace area, so edge a→b's
   outward normal is `(uz,-ux)` (`polygon.js`). Walls (`WALL_T` = 12) are
-  extruded outward per edge with mitred corners. `currentRoom()` = `rooms[0]`
-  for now. After changing an outline call `onRoomsChanged()` (rebuild walls,
-  re-clamp furniture, panel, autosave) + `checkpoint()`.
+  extruded outward with mitred corners. `currentRoom()` = the selected room
+  (`selectedRoomId`, UI state, not saved). After changing an outline call
+  `onRoomsChanged()` (rebuild walls, re-clamp furniture, panel, autosave) +
+  `checkpoint()`. Rooms must not overlap (`polygonsOverlap`).
+- Walls (`walls.js` `wallPieces`): facing edges of two rooms 0.5–60 cm apart
+  become ONE shared wall filling the gap (built by the lower room id, its
+  colour/height); the rest of each edge is a 12 cm outer wall. Mitres use each
+  side's real thickness. 3D and the plan overlay both draw these pieces.
+  Shared walls never auto-hide except from above.
+- Connecting rooms: `settings.innerWallT` (default 10) is the gap Plan snaps
+  to: other rooms' corners pushed out across each wall, and their outlines
+  pushed out (`gapCorners`/`gapEdges` in plan.js); a dragged wall snaps to a
+  facing wall at that gap.
 - Furniture vs walls (`layout-math.js`): `clampToRooms` keeps a footprint
   inside the room holding its centre (pushes off walls/columns; nearest grid
   spot if stuck; centred if it can't fit). `snapToWalls` / `snapOpeningToWall`
@@ -42,13 +52,12 @@ and preview new furniture. Simple > fancy.
   camera is behind them and all hide in top view; skirting stays.
 - Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`
   (in-memory fallback). Layout JSON v2 =
-  `{version:2, settings:{light,snap}, rooms:[...], items:[...without obj]}`.
+  `{version:2, settings:{light,snap,innerWallT}, rooms:[...], items:[...without obj]}`.
   v1 `{room:{w,d,h,floor,wall,light,snap}, items}` still loads (→ rectangle).
 
 ## Constraints so far
-- One room of any (non-self-crossing) shape. Multi-room + connecting rooms
-  wall to wall is the agreed next step: rooms one wall thickness apart
-  (default 10 cm), one shared wall in the gap.
+- Any number of rooms, each any (non-self-crossing) shape, no overlaps.
+  Rooms join through a shared wall only: no openings between them yet.
 - Doors/windows are plates on walls (no holes).
 
 ## Roadmap (from the original handoff)

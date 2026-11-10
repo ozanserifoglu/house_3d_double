@@ -59,6 +59,11 @@
     </div>
 
     <div class="tab" id="tab-room">
+      <div class="grid" id="room-list" style="margin-bottom:10px"></div>
+      <div class="row">
+        <label class="f">Room name<input id="r-name" type="text" maxlength="40"></label>
+        <button class="btn danger" id="b-del-room">Delete room</button>
+      </div>
       <div class="row">
         <span id="r-rect" style="display:contents">
           <label class="f">Width cm<input id="r-w" type="number" inputmode="numeric" step="10"></label>
@@ -68,6 +73,7 @@
           <button class="btn" id="b-rect" style="margin-top:6px">Reset to rectangle</button></span>
         <label class="f">Ceiling cm<input id="r-h" type="number" inputmode="numeric" step="10"></label>
       </div>
+      <div class="warn" id="r-msg" style="margin:-4px 0 8px"></div>
       <div class="row">
         <button class="btn" id="b-plan">Edit outline in Plan</button>
         <button class="btn" id="b-draw">Draw new outline</button>
@@ -81,12 +87,13 @@
         <label class="f">Snap
           <select id="r-snap"><option value="0">Off</option><option value="1">1 cm</option><option value="5">5 cm</option><option value="10">10 cm</option></select>
         </label>
+        <label class="f" title="Gap left between rooms when one snaps to another">Wall between rooms cm<input id="r-gap" type="number" inputmode="numeric" step="1" min="1" max="60"></label>
       </div>
       <div class="row">
         <button class="btn danger" id="b-clear">Remove all furniture</button>
         <button class="btn" id="b-sample">Load sample</button>
       </div>
-      <div class="muted">Plan view: drag a corner or a wall, click a wall's length to type it, double-click a wall to add a corner (two corners + drag the piece between = a notch for a column). Lengths are inside measurements; snap uses the Snap setting. Doors and windows snap to the nearest wall when you drag them close. Furniture turns red-outlined when it overlaps something.</div>
+      <div class="muted">Rooms: "+ Add room" draws a new one in Plan view; it snaps one "wall between rooms" away from the others, and facing walls up to 60 cm apart become one shared wall. Plan view: drag a corner or a wall, click a wall's length to type it, double-click a wall to add a corner (two corners + drag the piece between = a notch for a column). Lengths are inside measurements; snap uses the Snap setting. Doors and windows snap to the nearest wall when you drag them close. Furniture turns red-outlined when it overlaps something.</div>
     </div>
 
     <div class="tab" id="tab-save">

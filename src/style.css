@@ -23,6 +23,8 @@ button,select,input{font:inherit;color:inherit}
 .chip{display:flex;flex-direction:column;align-items:flex-start;gap:2px;background:#252932;border:1px solid #343944;border-radius:10px;padding:9px 10px;cursor:pointer;text-align:left}
 .chip small{color:#8d94a0;font-size:11px}
 .chip:active{background:#303541}
+.chip.on{border-color:#6ea8fe;background:#26344d}
+.chip.add{border-style:dashed;color:#9fc3ff}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:10px}
 label.f{display:flex;flex-direction:column;gap:3px;font-size:11px;color:#9aa0ab;flex:1;min-width:64px}
 label.f input,label.f select{background:#101216;border:1px solid #343944;border-radius:7px;padding:7px 8px;width:100%;font-size:15px;color:#e8e9ec}
@@ -39,6 +41,8 @@ textarea{width:100%;height:70px;background:#101216;border:1px solid #343944;bord
 #plan-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:none;font:12px system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 #plan-svg .pw{fill:#3a3f49;stroke:none}
 #plan-svg .po{fill:none;stroke:#1d2b44;stroke-width:1.5}
+#plan-svg .pw.sh{fill:#4a505c}
+#plan-svg .po.on{stroke:#3b6fd4;stroke-width:3}
 #plan-svg .bad{fill:#c0392b99;stroke:#ff5a4d}
 #plan-svg .psel{stroke:#ffd24a;stroke-width:4;stroke-linecap:round}
 #plan-svg .pc{fill:#fff;stroke:#1d2b44;stroke-width:1.5}
@@ -59,6 +63,7 @@ textarea{width:100%;height:70px;background:#101216;border:1px solid #343944;bord
 #planbar .btn.pri{background:#3b6fd4}
 #planbar label{display:flex;align-items:center;gap:6px;background:#15171bdd;border:1px solid #3a3f49;border-radius:8px;padding:3px 4px 3px 10px;font-size:12px;color:#c9cdd4}
 #planbar input,#plan-edit{width:84px;background:#101216;border:1px solid #4f82e6;border-radius:6px;padding:5px 7px;color:#e8e9ec;font-size:15px}
+#planbar .what{color:#e8e9ec;font-size:12px;font-weight:600;text-shadow:0 1px 2px #000}
 #planbar .msg{color:#ffb4ab;font-size:12px;text-shadow:0 1px 2px #000;flex-basis:100%;text-align:center;min-height:0}
 #plan-edit{position:absolute;transform:translate(-50%,-50%);z-index:5}
 @media (max-width:420px){#views,#history{gap:4px}#views .btn,#history .btn,#planbar .btn{padding:6px 7px;font-size:13px}}

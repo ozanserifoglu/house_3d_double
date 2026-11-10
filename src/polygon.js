@@ -105,6 +105,16 @@ export function isSimple(pts) {
   return true;
 }
 
+// Two outlines overlap, touch, or one contains the other.
+export function polygonsOverlap(a, b) {
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < b.length; j++) {
+      if (segmentsIntersect(a[i], a[(i + 1) % a.length], b[j], b[(j + 1) % b.length])) return true;
+    }
+  }
+  return pointInPolygon(a[0], b) || pointInPolygon(b[0], a);
+}
+
 // A point guaranteed inside: the centroid if it is inside, otherwise the
 // middle of the widest inside span on a horizontal line through it.
 export function interiorPoint(pts) {

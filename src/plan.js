@@ -8,7 +8,8 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { edges, offsetPolygon, isSimple, closestOnSegment, normalizePolygon, interiorPoint, bounds, signedArea, dist } from './polygon.js';
+import { edges, offsetPolygon, isSimple, closestOnSegment, normalizePolygon, interiorPoint, bounds, signedArea, dist, pointInPolygon, polygonsOverlap } from './polygon.js';
+import { wallPieces } from './walls.js';
 
 const FRUSTUM = 1000; // cm visible top to bottom at zoom 1
 const HIT = 10; // pick radius, px
@@ -19,18 +20,34 @@ const fmtLen = (cm) => {
 };
 
 const HINT_EDIT = 'Plan: drag a corner or wall · click a length to type it · double-click a wall to add a corner · right-drag to pan, wheel to zoom';
-const HINT_DRAW = 'Draw: click to place corners · type a length + Enter · Shift = any angle · click the first corner or press Enter to finish · Esc cancels';
+const HINT_DRAW = 'Draw: click to place corners (they snap one wall away from other rooms) · type a length + Enter · Shift = any angle · click the first corner or press Enter to finish · Esc cancels';
 
 /**
  * ctx: { canvas, view, scene, wallT, getRooms(), getSnap(),
+ *        getGap() — wall thickness to leave between rooms when snapping,
+ *        getSelectedRoomId(), onSelectRoom(id),
  *        onLive() — outline changed mid-drag (rebuild 3D only),
  *        onDone() — outline edit finished (rebuild, clamp furniture, undo step),
- *        onDrawn(pts) — a new outline was drawn, setHint(text|null) }
+ *        onDrawn(pts, targetId) — outline drawn for room targetId, or null =
+ *          a new room, setHint(text|null) }
  */
 export function createPlan(ctx) {
   const { canvas, view, scene, wallT } = ctx;
   const rooms = () => ctx.getRooms();
   const roomById = (id) => rooms().find((r) => r.id === id);
+  const overlapsOther = (pts, id) => rooms().some((r) => r.id !== id && polygonsOverlap(pts, r.pts));
+  // Other rooms' outlines pushed out by the wall-between-rooms gap: where a
+  // neighbouring room's outline should go. Corners: each corner pushed out
+  // across each of its two walls (so a room placed alongside lines up with
+  // it, e.g. (right + gap, top)); edges: the pushed-out outline.
+  const gapCorners = (exceptId) =>
+    rooms()
+      .filter((r) => r.id !== exceptId)
+      .flatMap((r) => {
+        const E = edges(r.pts), n = r.pts.length, g = ctx.getGap();
+        return r.pts.flatMap((v, i) => [E[(i - 1 + n) % n], E[i]].map((e) => [v[0] + e.nx * g, v[1] + e.nz * g]));
+      });
+  const gapEdges = (exceptId) => rooms().filter((r) => r.id !== exceptId).flatMap((r) => edges(offsetPolygon(r.pts, ctx.getGap())));
   let W = 1, H = 1;
 
   // ---------- Camera + pan/zoom ----------
@@ -70,12 +87,14 @@ export function createPlan(ctx) {
   bar.id = 'planbar';
   bar.innerHTML = `
     <div data-mode="edit">
-      <button class="btn" data-a="draw">Draw new outline</button>
+      <button class="btn" data-a="add">Add room</button>
+      <button class="btn" data-a="draw">Redraw room</button>
       <button class="btn" data-a="split">Add corner</button>
       <button class="btn" data-a="del">Delete corner</button>
       <button class="btn" data-a="fit">Fit</button>
     </div>
     <div data-mode="draw">
+      <span class="what"></span>
       <label>Length cm <input id="plan-len" type="number" inputmode="decimal" min="0" step="1"></label>
       <button class="btn" data-a="undo-pt">Undo corner</button>
       <button class="btn pri" data-a="close">Finish room</button>
@@ -96,6 +115,7 @@ export function createPlan(ctx) {
   let active = false;
   let mode = 'edit'; // 'edit' | 'draw'
   let draft = []; // corners placed so far while drawing
+  let drawTarget = null; // room id being redrawn, or null = drawing a new room
   let cursor = null; // { p, close?, guide?, typed? } snapped preview point while drawing
   let sel = null; // { roomId, kind: 'corner'|'wall', i }
   let hover = null;
@@ -163,18 +183,33 @@ export function createPlan(ctx) {
   }
 
   // ---------- Snapping ----------
-  // A dragged corner: grid, lined up with its neighbours (so walls stay
-  // straight), or exactly onto another room's corner.
+  // Onto the nearest "gap line" (another room's outline pushed out by the
+  // wall-between-rooms thickness) within tol, the position along it rounded
+  // to the snap step. Null if none is close.
+  function snapToGapEdge(p, exceptId, tol) {
+    let best = null;
+    for (const e of gapEdges(exceptId)) {
+      const c = closestOnSegment(p, e.a, e.b);
+      if (c.d < tol && (!best || c.d < best.d)) best = { ...c, e };
+    }
+    if (!best) return null;
+    const t = Math.max(0, Math.min(best.e.len, roundTo(best.t)));
+    return [best.e.a[0] + best.e.ux * t, best.e.a[1] + best.e.uz * t];
+  }
+
+  // A dragged corner: onto another room's gap corner or gap line, else grid,
+  // lined up with its neighbours (so walls stay straight) or with other
+  // rooms' gap corners.
   function snapCorner(p, room, work, i, free) {
     if (free) return [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10];
     const tol = HIT / pxPerCm();
-    for (const r of rooms()) {
-      if (r === room) continue;
-      for (const q of r.pts) if (dist(p, q) < tol) return [q[0], q[1]];
-    }
+    const others = gapCorners(room.id);
+    for (const q of others) if (dist(p, q) < tol) return [q[0], q[1]];
+    const onGap = snapToGapEdge(p, room.id, tol);
+    if (onGap) return onGap;
     let x = roundTo(p[0]), z = roundTo(p[1]);
     const n = work.length;
-    for (const q of [work[(i - 1 + n) % n], work[(i + 1) % n]]) {
+    for (const q of [work[(i - 1 + n) % n], work[(i + 1) % n], ...others]) {
       if (Math.abs(p[0] - q[0]) < tol) x = q[0];
       if (Math.abs(p[1] - q[1]) < tol) z = q[1];
     }
@@ -185,13 +220,18 @@ export function createPlan(ctx) {
   // to 45° steps (Shift: free) and the length rounds to the snap step, or is
   // the typed length. Axis-aligned segments also stop level with existing
   // corners (e.g. the first one) so the outline can be closed square.
+  // Other rooms count through their gap corners/lines (one wall away), the
+  // room being redrawn through its own corners (to trace it).
   function snapDraft(p, free) {
     const tol = HIT / pxPerCm();
     const typed = parseFloat(lenInput.value);
-    const anchors = [...draft.slice(0, -1), ...rooms().flatMap((r) => r.pts)];
+    const own = drawTarget !== null && roomById(drawTarget) ? roomById(drawTarget).pts : [];
+    const anchors = [...draft.slice(0, -1), ...own, ...gapCorners(drawTarget)];
     if (!(typed > 0) && draft.length >= 3 && dist(p, draft[0]) < tol) return { p: draft[0], close: true };
     if (!draft.length || (free && !(typed > 0))) {
       for (const q of anchors) if (dist(p, q) < tol) return { p: [q[0], q[1]] };
+      const onGap = snapToGapEdge(p, drawTarget, tol);
+      if (onGap) return { p: onGap };
       return { p: free ? [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10] : [roundTo(p[0]), roundTo(p[1])] };
     }
     const last = draft[draft.length - 1];
@@ -220,8 +260,12 @@ export function createPlan(ctx) {
   }
 
   // ---------- Drawing ----------
-  function startDraw() {
+  // targetId: the room to redraw, or null to draw a new room.
+  function startDraw(targetId = null) {
     mode = 'draw';
+    drawTarget = targetId;
+    const t = roomById(targetId);
+    bar.querySelector('.what').textContent = t ? `Redraw ${t.name}:` : 'New room:';
     draft = [];
     cursor = null;
     sel = null;
@@ -266,8 +310,10 @@ export function createPlan(ctx) {
     const pts = normalizePolygon(draft);
     if (pts.length < 3) return flash('A room needs at least 3 corners');
     if (!isSimple(pts)) return flash("The outline can't cross itself");
+    if (overlapsOther(pts, drawTarget)) return flash("Rooms can't overlap: leave a wall between them");
+    const target = drawTarget;
     cancelDraw();
-    ctx.onDrawn(pts);
+    ctx.onDrawn(pts, target);
   }
 
   // Enter: place the typed length, or finish the room.
@@ -302,6 +348,10 @@ export function createPlan(ctx) {
       flash(failMsg);
       return false;
     }
+    if (overlapsOther(pts, room.id)) {
+      flash("Rooms can't overlap: leave a wall between them");
+      return false;
+    }
     room.pts = pts;
     ctx.onDone();
     return true;
@@ -327,10 +377,30 @@ export function createPlan(ctx) {
     drag.e = e;
   }
 
+  // A dragged wall within reach of a facing wall of another room: the shift
+  // that leaves exactly the wall-between-rooms gap. Null if none is close.
+  function snapWallToNeighbour(dn) {
+    const { e, base } = drag, tol = HIT / pxPerCm(), gap = ctx.getGap();
+    const len = dist(base[0], base[1]);
+    let best = null;
+    for (const r of rooms()) {
+      if (r.id === drag.roomId) continue;
+      for (const f of edges(r.pts)) {
+        if (e.nx * f.nx + e.nz * f.nz > -0.999) continue; // not facing
+        const ta = (f.a[0] - base[0][0]) * e.ux + (f.a[1] - base[0][1]) * e.uz;
+        const tb = (f.b[0] - base[0][0]) * e.ux + (f.b[1] - base[0][1]) * e.uz;
+        if (Math.max(ta, tb) <= 0 || Math.min(ta, tb) >= len) continue; // side by side, not facing
+        const want = (f.a[0] - base[0][0]) * e.nx + (f.a[1] - base[0][1]) * e.nz - gap;
+        if (Math.abs(want - dn) < tol && (best === null || Math.abs(want - dn) < Math.abs(best - dn))) best = want;
+      }
+    }
+    return best;
+  }
+
   function moveWall(p, free) {
     const { e, base, dirA, dirB, start } = drag;
     let dn = (p[0] - start[0]) * e.nx + (p[1] - start[1]) * e.nz;
-    if (!free) dn = roundTo(dn);
+    if (!free) dn = snapWallToNeighbour(dn) ?? roundTo(dn);
     const shift = (q, dir) => {
       if (!dir) return [q[0] + e.nx * dn, q[1] + e.nz * dn];
       const k = dn / (dir[0] * e.nx + dir[1] * e.nz);
@@ -437,7 +507,8 @@ export function createPlan(ctx) {
   bar.addEventListener('click', (e) => {
     const a = e.target.closest('[data-a]')?.dataset.a;
     const room = sel && roomById(sel.roomId);
-    if (a === 'draw') startDraw();
+    if (a === 'add') startDraw(null);
+    else if (a === 'draw') startDraw(ctx.getSelectedRoomId());
     else if (a === 'split' && room && sel.kind === 'wall') splitWall(room, sel.i, null);
     else if (a === 'del') deleteCorner();
     else if (a === 'fit') fit();
@@ -461,9 +532,13 @@ export function createPlan(ctx) {
     const h = hitTest(s, p);
     if (!h) {
       if (sel) select(null);
+      // Pressing on a room's floor selects that room (furniture still gets the event).
+      const r = rooms().find((q) => pointInPolygon(p, q.pts));
+      if (r && r.id !== ctx.getSelectedRoomId()) ctx.onSelectRoom(r.id);
       return false; // furniture, or pan
     }
     controls.enabled = false;
+    if (h.roomId !== ctx.getSelectedRoomId()) ctx.onSelectRoom(h.roomId);
     if (h.kind === 'label') {
       press = { label: h };
       return true;
@@ -488,7 +563,7 @@ export function createPlan(ctx) {
       if (drag.kind === 'corner') drag.work[drag.i] = snapCorner(p, room, drag.work, drag.i, e.shiftKey);
       else moveWall(p, e.shiftKey);
       room.pts = normalizePolygon(drag.work);
-      drag.valid = room.pts.length >= 3 && isSimple(room.pts);
+      drag.valid = room.pts.length >= 3 && isSimple(room.pts) && !overlapsOther(room.pts, room.id);
       ctx.onLive();
       dirty = true;
       return true;
@@ -581,13 +656,18 @@ export function createPlan(ctx) {
   function render() {
     labels = [];
     const out = [];
+    const badId = drag && drag.moved && !drag.valid ? drag.roomId : null;
+    // Walls as in 3D: outer walls and one shared wall between facing rooms.
+    for (const pc of wallPieces(rooms(), wallT)) {
+      out.push(`<path class="pw${pc.shared ? ' sh' : ''}${pc.roomId === badId ? ' bad' : ''}" d="${pathOf(pc.quad.map(toScreen))}"/>`);
+    }
+    const selId = ctx.getSelectedRoomId();
     for (const r of rooms()) {
       const pts = r.pts, n = pts.length;
       if (n < 3) continue;
       const scr = pts.map(toScreen);
-      const bad = drag && drag.moved && drag.roomId === r.id && !drag.valid ? ' bad' : '';
-      out.push(`<path class="pw${bad}" fill-rule="evenodd" d="${pathOf(offsetPolygon(pts, wallT).map(toScreen))}${pathOf(scr)}"/>`);
-      out.push(`<path class="po${bad}" d="${pathOf(scr)}"/>`);
+      const bad = r.id === badId ? ' bad' : '';
+      out.push(`<path class="po${bad}${r.id === selId && rooms().length > 1 ? ' on' : ''}" d="${pathOf(scr)}"/>`);
       edges(pts).forEach((e, i) => {
         const a = scr[i], b = scr[(i + 1) % n];
         const on = sel && sel.roomId === r.id && sel.kind === 'wall' && sel.i === i;
@@ -608,7 +688,8 @@ export function createPlan(ctx) {
         out.push(`<circle class="pc${on ? ' on' : ''}" cx="${f1(q[0])}" cy="${f1(q[1])}" r="${on ? 6 : 4.5}"/>`);
       });
       const c = toScreen(interiorPoint(pts));
-      out.push(`<text class="pa" x="${f1(c[0])}" y="${f1(c[1])}">${(Math.abs(signedArea(pts)) / 10000).toFixed(1)} m²</text>`);
+      const name = String(r.name).replace(/[&<>]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+      out.push(`<text class="pa" x="${f1(c[0])}" y="${f1(c[1])}">${name} · ${(Math.abs(signedArea(pts)) / 10000).toFixed(1)} m²</text>`);
     }
 
     if (mode === 'draw') {
@@ -695,6 +776,7 @@ export function createPlan(ctx) {
   // Layout replaced (load, undo): drop anything that points into the old one.
   function reset() {
     if (mode === 'draw') cancelDraw();
+    drawTarget = null;
     drag = press = sel = hover = null;
     closeEditor();
     if (active) controls.enabled = true;
