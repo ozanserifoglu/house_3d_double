@@ -60,7 +60,9 @@ state of `src/` on 2026-11-10.
 4. **[pascalorg/editor](projects.md#pascalorgeditor)**: the most
    ambitious open-source building editor (≈25k★). Use it as a benchmark
    for the far end of the roadmap, not as code to copy, since its stack
-   is R3F, WebGPU and a monorepo. MIT.
+   is R3F, WebGPU and a monorepo. MIT. It is also usable directly as an
+   alternative to this project: see
+   [importing your own apartment into Pascal](projects.md#importing-your-own-apartment-into-pascal).
 5. **[gkjohnson/three-bvh-csg](techniques.md#4-real-wall-holes-for-doors-and-windows)**
    and **[three-gpu-pathtracer](techniques.md#5-realistic-rendering)**:
    the two go-to libraries for wall holes and a photoreal still mode.

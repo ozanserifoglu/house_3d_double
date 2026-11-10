@@ -73,6 +73,37 @@ The current high-water mark for open-source web building editors. Verified.
   Vite app, but its docs (`docs/architecture.md`, mintlify wiki) are
   worth reading for data-model ideas.
 
+#### Importing your own apartment into Pascal
+Read from Pascal's source on `main`, 2026-11-10. Pascal itself was not run,
+so actual UI labels may differ.
+
+| You have | Pascal turns it into | Editable walls? |
+|---|---|---|
+| Floor plan image (JPEG/PNG/WebP/GIF) | **Guide** node: image layer (default opacity 50%) with a scale reference (two points + real length → `metersPerUnit`). You trace walls over it. | No, you trace them |
+| 3D scan as **GLB/glTF** | **Scan** node: reference layer with position/rotation/scale/opacity, loaded with a KTX2-aware glTF loader. Needs an open project (the scan is uploaded to it). | No, reference only |
+| **IFC** (2x3 / IFC4) | IFC converter app (`apps/ifc-converter`, package `@pascal-app/ifc-converter`). Sites, buildings, levels, walls, doors, windows, slabs, columns and spaces become native nodes; anything else becomes an `imported-mesh` node. Labelled **early alpha**. Outputs scene JSON. | Yes (when mapping succeeds) |
+| Pascal scene ("build") JSON | "Load Build", or `/import?src=<https URL>` (meant for scanning apps to hand over a file). Needs CORS on the source; 10 MB cap; validated and reviewed before creating the scene. | Yes |
+
+- **Not accepted directly:** OBJ, FBX, SketchUp, DXF, USDZ, PLY/E57
+  point clouds, Apple RoomPlan JSON. Convert to GLB (e.g. Blender) to
+  use as a scan reference.
+- **Custom furniture:** the docs say the built-in catalogue is small and
+  host apps can extend it ("contracts for GLB catalog items"). No UI
+  upload for your own furniture models was found, so test this before
+  relying on Pascal to preview specific products.
+- **MCP:** agents can read/edit/validate/save scenes. `export_glb` is
+  `not_implemented` in the MCP package; the browser editor has its own
+  GLB export (`packages/editor/src/lib/glb-export.ts`).
+- **Hosting:** editor.pascal.app (separate terms), or run locally/self-host (MIT).
+- **Suggested first try:** floor-plan image as a guide → trace walls →
+  add a few real furniture pieces to judge the catalogue.
+
+Source files: `packages/editor/src/components/ui/action-menu/view-toggles.tsx`
+(accepted types), `packages/core/src/schema/nodes/{guide,scan,imported-mesh}.ts`,
+`packages/editor/src/lib/local-guide-image.ts`, `packages/nodes/src/scan/renderer.tsx`,
+`apps/editor/app/import/import-client.tsx`, `apps/editor/lib/import-src.ts`,
+`apps/ifc-converter/components/IfcConverter.tsx`.
+
 ### blueprint3d family
 The classic open-source three.js planner. It has a 2D floorplan editor and a 3D item view.
 

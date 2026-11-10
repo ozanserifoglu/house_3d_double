@@ -206,7 +206,12 @@ Roadmap #3.
   - Some exports reportedly drop the floor from the USDZ.
 - **Floor-plan image tracing:** "Blueprint3D Evolved" lets you upload a
   plan image and trace walls over it. Cheap to add as a top-view
-  background texture with a scale calibration.
+  background texture with a scale calibration. Pascal Editor's "guide"
+  node is a worked example: image + two picked points + real length →
+  `metersPerUnit` (see [Pascal import](projects.md#importing-your-own-apartment-into-pascal)).
+- **Scan as a reference layer:** Pascal loads a GLB scan as a
+  semi-transparent layer to model over, rather than converting it.
+  Simpler than parsing scans, and works with any scanner that exports GLB.
 
 Refs: [RoomPlan overview](https://developer.apple.com/augmented-reality/roomplan),
 [CapturedRoom docs](https://developer.apple.com/documentation/roomplan/capturedroom),
