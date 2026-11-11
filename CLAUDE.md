@@ -75,6 +75,13 @@ and preview new furniture. Simple > fancy.
   (`historyState()` = rooms + items, no settings), max 100, in memory only.
 - Drag handler is a capture-phase `pointerdown` registered **before**
   OrbitControls so it can set `controls.enabled = false` first.
+- Lighting: ACES tone mapping + `RoomEnvironment` as `scene.environment`,
+  hemisphere + sun (PCF shadows, `shadow.radius` for soft edges) + lamp point
+  lights. `LIGHTING[preset]` holds each preset's strengths incl. `env` and
+  `exposure`; `applyLighting()` sets `envMapIntensity` on every standard
+  material (0.160 has no `scene.environmentIntensity`), so call it after
+  creating materials (rebuildItem/buildRooms already do). Furniture `box()`
+  parts are `RoundedBoxGeometry` (≤1.5 cm radius; parts < 2 cm stay sharp).
 - Walls are boxes outside the room bounds; they auto-hide when the
   camera is behind them and all hide in top view; skirting stays.
 - Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`
