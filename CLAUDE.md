@@ -82,9 +82,15 @@ and preview new furniture. Simple > fancy.
   material (0.160 has no `scene.environmentIntensity`), so call it after
   creating materials (rebuildItem/buildRooms already do). Furniture `box()`
   parts are `RoundedBoxGeometry` (≤1.5 cm radius; parts < 2 cm stay sharp).
+- Ambient occlusion: the 3D view renders through `composer` (RenderPass →
+  `GTAOPass` → OutputPass, 4× MSAA HalfFloat target); Plan view and AO-off
+  use plain `renderer.render`. GTAO lengths are cm (`thickness` must be tens
+  of cm or the AO vanishes). On/off = Room tab, stored per device in
+  localStorage `rp3d_ao` (not in the layout); default off on coarse-pointer
+  (touch) screens.
 - Walls are boxes outside the room bounds; they auto-hide when the
   camera is behind them and all hide in top view; skirting stays.
-- Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`
+- Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`, `rp3d_ao`
   (in-memory fallback). Layout JSON v2 =
   `{version:2, settings:{light,snap,innerWallT}, rooms:[...], items:[...without obj]}`.
   `rooms[].locked` and `rooms[].roomLock` are optional (older saves load
