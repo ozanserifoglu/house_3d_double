@@ -7,17 +7,18 @@ These were converted one-to-one from the minified build but not clicked through 
 - [ ] Duplicate and Delete buttons
 - [ ] Layout slots A/B/C (save + load)
 - [ ] Export / Import / Copy layout text
-- [ ] Floor and wall colour pickers, item colour picker
+- [x] ~~Floor and wall colour pickers, item colour picker~~ Replaced by the in-page picker (`color-picker.js`) and clicked through on desktop.
 - [ ] Eye level camera preset
 - [ ] Room W/D/ceiling inputs (pieces re-clamp into the smaller room)
 - [ ] Width/depth/height/lift inputs on an item
-- [ ] Touch: pinch zoom and drag on a phone
+- [ ] Touch: pinch zoom and drag on a phone; dragging in the colour picker's square and hue bar
 
 ## Bugs / UX
 - [x] ~~Backspace deletes the selected piece with no undo.~~ Undo/redo added (Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y, and buttons top-right), so an accidental delete can be undone. Backspace still deletes.
 - [ ] Undo history is in memory only: a page reload starts a fresh history (the layout itself is still autosaved).
 - [ ] `R` rotates even with Ctrl held, so Ctrl+R both rotates the piece and reloads the page (pre-existing).
 - [ ] New pieces from the catalog always appear in the same 5 staggered spots (`items.length % 5`). They can land on top of existing furniture.
+- [ ] Colour picker: Ctrl+Z / Ctrl+Y while it is open changes the colour underneath but the open picker keeps showing the old one until it is closed.
 - [ ] Saved layouts are per site (localStorage). Layouts from the claude.ai artifact must be moved over by hand: Export → Copy there, Import here.
 
 ## Room drawing (steps 1 + 2 done: rooms of any shape, connected by shared walls)
@@ -48,4 +49,3 @@ These were converted one-to-one from the minified build but not clicked through 
 
 ## Not done
 - [ ] No single-file offline build of the new source. `reference/room-planner-v1-offline.html` still works on its own (see `vite-plugin-singlefile` if needed).
-- [ ] Nothing committed to git yet.

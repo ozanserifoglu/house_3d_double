@@ -111,7 +111,11 @@ and preview new furniture. Simple > fancy.
 ## Roadmap (from the original handoff)
 1. Realistic render style. Done: soft shadows, environment light
    (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO).
-   Left: textures (wood, fabric, tile), window light.
+   Left: textures (wood, fabric, tile), window light. Textures: canvas-drawn
+   (no files) or small CC0 photo sets in `public/textures/`; tint by the
+   item colour so picks still apply. Window light: a `RectAreaLight` per
+   window is the cheap version (no shadows); real sun patches through
+   windows need wall holes (item 4).
 2. Import real furniture meshes (GLB/glTF first; OBJ/FBX later): file
    picker, scale to cm, then behave like any item (drag/rotate/overlap/
    save). Keep models < ~5 MB. Saved layouts reference files in
