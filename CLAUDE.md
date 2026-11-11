@@ -30,12 +30,21 @@ and preview new furniture. Simple > fancy.
   (`selectedRoomId`, UI state, not saved). After changing an outline call
   `onRoomsChanged()` (rebuild walls, re-clamp furniture, panel, autosave) +
   `checkpoint()`. Rooms must not overlap (`polygonsOverlap`).
-- Locked walls (`locks.js`): `room.locked` = end-point pairs of locked walls.
-  A locked wall's corners never move, so locks are matched by coordinates
-  (survives corners added/removed elsewhere). Plan refuses any drag/length/
-  corner edit that would move them (typing a length moves the free end
-  instead); the Room tab's W/D and Reset refuse while a room has locks.
-  `onRoomsChanged()` prunes locks whose wall left the outline (redraw).
+- Locked walls (`locks.js`): lock the wall's **length (and angle)**, not its
+  place. `room.locked` = each locked wall's [start, end] corners where it
+  last was. Edits move corners via `carryLocked` (a locked wall touching a
+  moved corner moves whole; from there a wall square to the motion moves
+  whole too, so rectangles stay square). `relocateLocks(locks, newPts)` then
+  finds each lock again as the same start→end vector nearest its old place;
+  null = a locked wall stretched/turned → the edit is refused (Plan's
+  `applyOutline`, live drag turns red; Room tab W/D/Reset too). Typing a
+  length tries the end corner, then the start. Locked walls can't be split
+  and their corners can't be deleted. `onRoomsChanged()` prunes locks whose
+  wall left the outline (redraw).
+- Locked room: `room.roomLock` (bool) = a finished room. Plan refuses every
+  outline edit/redraw/wall-lock toggle on it; Room tab disables W/D/ceiling/
+  draw/delete. Name and colours stay editable. Toggle: "Lock room" in the
+  Plan toolbar or Room tab (undo step).
 - Walls (`walls.js` `wallPieces`): facing edges of two rooms 0.5–60 cm apart
   become ONE shared wall filling the gap (built by the lower room id, its
   colour/height); the rest of each edge is a 12 cm outer wall. Mitres use each
@@ -65,7 +74,8 @@ and preview new furniture. Simple > fancy.
 - Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`
   (in-memory fallback). Layout JSON v2 =
   `{version:2, settings:{light,snap,innerWallT}, rooms:[...], items:[...without obj]}`.
-  `rooms[].locked` is optional (older saves load with no locks).
+  `rooms[].locked` and `rooms[].roomLock` are optional (older saves load
+  unlocked).
   v1 `{room:{w,d,h,floor,wall,light,snap}, items}` still loads (→ rectangle).
 
 ## Constraints so far

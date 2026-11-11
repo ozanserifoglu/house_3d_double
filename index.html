@@ -62,6 +62,7 @@
       <div class="grid" id="room-list" style="margin-bottom:10px"></div>
       <div class="row">
         <label class="f">Room name<input id="r-name" type="text" maxlength="40"></label>
+        <button class="btn" id="b-lock-room" title="A locked room keeps its outline and ceiling height">Lock room</button>
         <button class="btn danger" id="b-del-room">Delete room</button>
       </div>
       <div class="row">
@@ -93,7 +94,7 @@
         <button class="btn danger" id="b-clear">Remove all furniture</button>
         <button class="btn" id="b-sample">Load sample</button>
       </div>
-      <div class="muted">Rooms: "+ Add room" draws a new one in Plan view; it snaps one "wall between rooms" away from the others, and facing walls up to 60 cm apart become one shared wall. Plan view: drag a corner or a wall, click a wall's length to type it, double-click a wall to add a corner (two corners + drag the piece between = a notch for a column). Select a wall + "Lock wall" to keep it fixed while you change the others (typing a length then moves the other end). Lengths are inside measurements; snap uses the Snap setting. Doors and windows snap to the nearest wall when you drag them close. Furniture turns red-outlined when it overlaps something.</div>
+      <div class="muted">Rooms: "+ Add room" draws a new one in Plan view; it snaps one "wall between rooms" away from the others, and facing walls up to 60 cm apart become one shared wall. Plan view: drag a corner or a wall, click a wall's length to type it, double-click a wall to add a corner (two corners + drag the piece between = a notch for a column). Select a wall + "Lock wall" to keep its length while you change the others (it slides along with them instead of stretching). "Lock room" freezes a finished room's outline and ceiling. Lengths are inside measurements; snap uses the Snap setting. Doors and windows snap to the nearest wall when you drag them close. Furniture turns red-outlined when it overlaps something.</div>
     </div>
 
     <div class="tab" id="tab-save">

@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CATALOG, BUILD } from './catalog.js';
 import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap } from './layout-math.js';
 import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon, polygonsOverlap } from './polygon.js';
-import { pruneLocks, parseLocks } from './locks.js';
+import { pruneLocks, parseLocks, relocateLocks } from './locks.js';
 import { createPlan } from './plan.js';
 import { wallPieces } from './walls.js';
 
@@ -37,7 +37,7 @@ const settings = { light: 'day', snap: 5, innerWallT: 10 };
 let rooms = [];
 let nextRoomId = 1;
 const WALL_T = 12; // outer wall thickness; walls sit outside the outline
-const newRoom = (props) => ({ id: nextRoomId++, name: 'Room', pts: rectPts(500, 400), h: 260, floor: '#c9b79c', wall: '#f2efe9', locked: [], ...props });
+const newRoom = (props) => ({ id: nextRoomId++, name: 'Room', pts: rectPts(500, 400), h: 260, floor: '#c9b79c', wall: '#f2efe9', locked: [], roomLock: false, ...props });
 function nextRoomName() {
   let k = rooms.length + 1;
   while (rooms.some((r) => r.name === `Room ${k}`)) k++;
@@ -666,11 +666,15 @@ function syncRoomInputs() {
   $('#r-wall').value = r.wall;
   $('#r-light').value = settings.light;
   $('#r-snap').value = settings.snap;
-  $('#b-del-room').disabled = rooms.length < 2;
+  // A locked room ("done") keeps its outline and ceiling; name/colours stay editable.
+  const lk = !!r.roomLock;
+  ['#r-w', '#r-d', '#r-h', '#b-rect', '#b-draw'].forEach((s) => ($(s).disabled = lk));
+  $('#b-lock-room').textContent = lk ? 'Unlock room' : 'Lock room';
+  $('#b-del-room').disabled = rooms.length < 2 || lk;
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   $('#room-list').innerHTML =
     rooms
-      .map((q) => `<button class="chip${q === r ? ' on' : ''}" data-room="${q.id}"><span>${esc(q.name)}</span><small>${(Math.abs(signedArea(q.pts)) / 10000).toFixed(1)} m²</small></button>`)
+      .map((q) => `<button class="chip${q === r ? ' on' : ''}" data-room="${q.id}"><span>${q.roomLock ? '🔒 ' : ''}${esc(q.name)}</span><small>${(Math.abs(signedArea(q.pts)) / 10000).toFixed(1)} m²</small></button>`)
       .join('') + '<button class="chip add" id="b-add-room"><span>+ Add room</span><small>draw it in Plan</small></button>';
 }
 
@@ -702,30 +706,44 @@ function onRoomsChanged() {
     const v = parseFloat(e.target.value);
     const r = currentRoom(), rect = asRect(r.pts);
     if (!rect || !isFinite(v) || v < min || v > max) return; // ignore while typing out-of-range values
-    if (r.locked.length) return roomMessage('This room has locked walls: unlock them in Plan view to resize it here.');
+    if (r.roomLock) return roomMessage('This room is locked: unlock it to resize it.');
     rect[key] = v;
     const pts = rectPts(rect.w, rect.d, rect.cx, rect.cz);
     if (overlapsOthers(pts, r.id)) return roomMessage('That size would overlap another room.');
+    const locks = relocateLocks(r.locked, pts);
+    if (!locks) return roomMessage("That size would change a locked wall's length: unlock it in Plan view first.");
     r.pts = pts;
+    r.locked = locks;
     onRoomsChanged();
   });
 });
 $('#r-h').addEventListener('input', (e) => {
   const v = parseFloat(e.target.value);
-  if (!isFinite(v) || v < 200 || v > 500) return;
+  if (!isFinite(v) || v < 200 || v > 500 || currentRoom().roomLock) return;
   currentRoom().h = v;
   onRoomsChanged();
 });
 $('#b-rect').addEventListener('click', () => {
   const r = currentRoom(), b = bounds([r.pts]);
-  if (r.locked.length) return roomMessage('This room has locked walls: unlock them in Plan view first.');
+  if (r.roomLock) return roomMessage('This room is locked: unlock it first.');
   const pts = rectPts(b.w, b.d, b.cx, b.cz);
   if (overlapsOthers(pts, r.id)) return roomMessage('The rectangle would overlap another room.');
+  const locks = relocateLocks(r.locked, pts);
+  if (!locks) return roomMessage("The rectangle would change a locked wall's length: unlock it in Plan view first.");
   r.pts = pts;
+  r.locked = locks;
   onRoomsChanged();
   checkpoint();
 });
 $('#b-plan').addEventListener('click', () => setView('plan'));
+$('#b-lock-room').addEventListener('click', () => {
+  const r = currentRoom();
+  r.roomLock = !r.roomLock;
+  syncRoomInputs();
+  plan.refresh();
+  scheduleAutosave();
+  checkpoint();
+});
 $('#b-draw').addEventListener('click', () => {
   setView('plan');
   plan.startDraw(currentRoom().id);
@@ -750,7 +768,7 @@ $('#r-name').addEventListener('input', (e) => {
 // Deleting a room takes the furniture standing in it along (undo restores both).
 $('#b-del-room').addEventListener('click', () => {
   const r = currentRoom();
-  if (rooms.length < 2) return;
+  if (rooms.length < 2 || r.roomLock) return;
   const inside = items.filter((it) => pointInPolygon([it.x, it.z], r.pts));
   const what = inside.length ? ` and the ${inside.length} piece${inside.length > 1 ? 's' : ''} in it` : '';
   if (!confirm(`Delete ${r.name}${what}? (Undo brings it back.)`)) return;
@@ -807,7 +825,7 @@ $$('#views [data-view]').forEach((b) => b.addEventListener('click', () => setVie
 // ---------- Save / load ----------
 const itemData = () => items.map(({ id, type, w, d, h, y, x, z, rot, color }) => ({ id, type, w, d, h, y, x, z, rot, color }));
 
-const roomData = () => rooms.map(({ id, name, pts, h, floor, wall, locked }) => ({ id, name, pts, h, floor, wall, locked }));
+const roomData = () => rooms.map(({ id, name, pts, h, floor, wall, locked, roomLock }) => ({ id, name, pts, h, floor, wall, locked, roomLock }));
 
 // Layout JSON v2: { version, settings, rooms, items }.
 // v1 had a single rectangle: { room: { w, d, h, floor, wall, light, snap }, items }.
@@ -820,7 +838,7 @@ function parseRooms(parsed) {
   if (Array.isArray(parsed.rooms)) {
     const list = parsed.rooms
       .filter((r) => Array.isArray(r.pts))
-      .map((r) => ({ ...r, pts: normalizePolygon(r.pts.filter((p) => isFinite(p[0]) && isFinite(p[1]))), locked: parseLocks(r.locked) }))
+      .map((r) => ({ ...r, pts: normalizePolygon(r.pts.filter((p) => isFinite(p[0]) && isFinite(p[1]))), locked: parseLocks(r.locked), roomLock: r.roomLock === true }))
       .filter((r) => r.pts.length >= 3)
       .map(({ id, ...r }) => newRoom({ ...r, ...(Number.isInteger(id) ? { id } : {}) }));
     if (list.length) return list;

@@ -48,7 +48,6 @@ textarea{width:100%;height:70px;background:#101216;border:1px solid #343944;bord
 #plan-svg .pc{fill:#fff;stroke:#1d2b44;stroke-width:1.5}
 #plan-svg .pc.on{fill:#ffd24a}
 #plan-svg .plk{stroke:#e08a2e;stroke-width:5;stroke-linecap:round}
-#plan-svg .pc.lk{fill:#e08a2e}
 #plan-svg .pl.lk rect{fill:#ffe2c2e6;stroke:#e08a2e}
 #plan-svg .pl rect{fill:#ffffffe6;stroke:#1d2b4455}
 #plan-svg .pl text{fill:#1d2b44;text-anchor:middle;font-weight:600}
