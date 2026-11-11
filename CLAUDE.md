@@ -16,8 +16,14 @@ and preview new furniture. Simple > fancy.
   Commit/push only when asked.
 
 ## Architecture
-- `CATALOG[type]` = defaults `{label,w,d,h,color,y?,noCol?,opening?}`.
+- `CATALOG[type]` = defaults `{label,w,d,h,color,y?,noCol?,opening?,top?,under?,tuck?,onTop?}`.
   `noCol` skips overlap checks; `opening` = door/window, snaps to walls.
+  Stacking (`main.js` "Stacking"): `top` = flat top at height h; `onTop`
+  pieces dragged/added over one (centre inside its footprint) get `y` = its
+  top, else 0, and a dragged `top` piece carries what rests on it. `under` =
+  knee room below a `TOP_T` top; a `tuck` piece (chair) overlapping it isn't
+  flagged if its seat (`seatTop(h)`) clears the underside and its backrest
+  (rear `BACK_T` cm, `backStrip`) stays outside. No saved-format change.
 - `BUILD[type](group,w,d,h,color)` builds primitives; origin at floor
   centre, front faces +z. `coffee` aliases `table`, `armchair` aliases `sofa`.
   A missing builder logs `missing builder` at load (that once caused a black screen).

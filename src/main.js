@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CATALOG, BUILD } from './catalog.js';
-import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap } from './layout-math.js';
+import { CATALOG, BUILD, TOP_T, BACK_T, seatTop } from './catalog.js';
+import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap, pointInFootprint, backStrip } from './layout-math.js';
 import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon, polygonsOverlap } from './polygon.js';
 import { pruneLocks, parseLocks, relocateLocks } from './locks.js';
 import { createPlan } from './plan.js';
@@ -92,7 +92,7 @@ let walls = []; // { m: Mesh, a: [x, z], nx, nz } — a point on the wall's insi
 // ---------- Pointer: drag furniture on the floor ----------
 // Registered (capture phase) before OrbitControls so it can disable
 // orbiting before the controls see the same pointerdown.
-let drag = null; // { it, ox, oz, moved }
+let drag = null; // { it, ox, oz, moved, riders: [{ r, dx, dz }] }
 let press = null; // { x, y, hit } — to tell a tap on empty space from an orbit
 const raycaster = new THREE.Raycaster();
 const pointerNdc = new THREE.Vector2();
@@ -134,7 +134,9 @@ canvas.addEventListener(
     press.hit = true;
     select(it, true);
     if (raycaster.ray.intersectPlane(floorPlane, hitPoint)) {
-      drag = { it, ox: hitPoint.x - it.x, oz: hitPoint.z - it.z, moved: false };
+      // A `top` piece carries what rests on it.
+      const riders = restingOn(it).map((r) => ({ r, dx: r.x - it.x, dz: r.z - it.z }));
+      drag = { it, ox: hitPoint.x - it.x, oz: hitPoint.z - it.z, moved: false, riders };
       activeControls().enabled = false;
     }
   },
@@ -158,7 +160,14 @@ canvas.addEventListener('pointermove', (e) => {
   if (CATALOG[it.type].opening) snapOpeningToWall(it, rooms);
   else snapToWalls(it, rooms);
   clampToRooms(it, rooms);
+  settleOnTop(it);
   applyTransform(it);
+  for (const { r, dx, dz } of drag.riders) {
+    r.x = it.x + dx;
+    r.z = it.z + dz;
+    clampToRooms(r, rooms);
+    applyTransform(r);
+  }
   drag.moved = true;
   computeOverlaps();
   refreshOutlines();
@@ -294,6 +303,29 @@ function removeItem(it) {
   items = items.filter((i) => i !== it);
 }
 
+// ---------- Stacking (see the flags in catalog.js) ----------
+// The `onTop` pieces resting on `top` piece s (centre over it, base on its top).
+function restingOn(s) {
+  if (!CATALOG[s.type].top) return [];
+  return items.filter((r) => CATALOG[r.type].onTop && Math.abs(r.y - (s.y + s.h)) < 0.5 && pointInFootprint(r.x, r.z, s));
+}
+
+// An `onTop` piece rests on the highest `top` piece under its centre, else the floor.
+function settleOnTop(it) {
+  if (!CATALOG[it.type].onTop) return;
+  it.y = 0;
+  for (const s of items) {
+    if (s !== it && CATALOG[s.type].top && pointInFootprint(it.x, it.z, s)) it.y = Math.max(it.y, s.y + s.h);
+  }
+}
+
+// Chair `c` slid partly under table `t`: its seat clears the underside of
+// the top and its backrest stays outside the table's footprint.
+function tuckedUnder(c, t) {
+  if (!CATALOG[c.type].tuck || !CATALOG[t.type].under) return false;
+  return c.y + seatTop(c.h) <= t.y + t.h - TOP_T + 0.5 && !footprintsOverlap(backStrip(c, BACK_T), t);
+}
+
 // ---------- Overlap detection + outlines ----------
 let overlapping = new Set();
 
@@ -304,7 +336,7 @@ function computeOverlaps() {
     for (let j = i + 1; j < solid.length; j++) {
       const a = solid[i], b = solid[j];
       const verticalOverlap = a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1;
-      if (verticalOverlap && footprintsOverlap(a, b)) {
+      if (verticalOverlap && footprintsOverlap(a, b) && !tuckedUnder(a, b) && !tuckedUnder(b, a)) {
         overlapping.add(a.id);
         overlapping.add(b.id);
       }
@@ -551,6 +583,7 @@ $('#catalog').addEventListener('click', (e) => {
     snapOpeningToWall(it, [r]);
   }
   clampToRooms(it, rooms);
+  settleOnTop(it);
   applyTransform(it);
   select(it, true);
   commit();
@@ -603,6 +636,7 @@ $('#b-dup').addEventListener('click', () => {
   const s = selected;
   const copy = addItem(s.type, { w: s.w, d: s.d, h: s.h, y: s.y, x: s.x + 30, z: s.z + 30, rot: s.rot, color: s.color });
   clampToRooms(copy, rooms);
+  settleOnTop(copy);
   applyTransform(copy);
   select(copy);
   commit();

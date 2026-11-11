@@ -15,6 +15,20 @@ export function corners(it) {
   });
 }
 
+// Is the floor point (x, z) inside the item's footprint?
+export function pointInFootprint(x, z, it) {
+  const a = it.rot * DEG, c = Math.cos(a), s = Math.sin(a);
+  const dx = x - it.x, dz = z - it.z;
+  const lx = dx * c - dz * s, lz = dx * s + dz * c; // inverse of corners()
+  return Math.abs(lx) <= it.w / 2 && Math.abs(lz) <= it.d / 2;
+}
+
+// The item's rear `depth` cm (its local -z side) as a footprint of its own.
+export function backStrip(it, depth) {
+  const a = it.rot * DEG, lz = -(it.d - depth) / 2;
+  return { x: it.x + lz * Math.sin(a), z: it.z + lz * Math.cos(a), w: it.w, d: depth, rot: it.rot };
+}
+
 // The room containing (x, z), or null.
 export function roomAt(x, z, rooms) {
   return rooms.find((r) => pointInPolygon([x, z], r.pts)) || null;
