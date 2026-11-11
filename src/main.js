@@ -6,6 +6,7 @@ import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, poin
 import { pruneLocks, parseLocks, relocateLocks } from './locks.js';
 import { createPlan } from './plan.js';
 import { wallPieces } from './walls.js';
+import { attachColorPickers } from './color-picker.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -28,6 +29,8 @@ const store = {
     } catch {}
   },
 };
+
+attachColorPickers(store);
 
 // ---------- State (all lengths in cm) ----------
 // View/drawing preferences, not part of undo history. innerWallT = the gap

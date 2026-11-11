@@ -69,3 +69,17 @@ textarea{width:100%;height:70px;background:#101216;border:1px solid #343944;bord
 #planbar .msg{color:#ffb4ab;font-size:12px;text-shadow:0 1px 2px #000;flex-basis:100%;text-align:center;min-height:0}
 #plan-edit{position:absolute;transform:translate(-50%,-50%);z-index:5}
 @media (max-width:420px){#views,#history{gap:4px}#views .btn,#history .btn,#planbar .btn{padding:6px 7px;font-size:13px}}
+/* Colour picker popover (color-picker.js) */
+.cp{position:fixed;z-index:50;width:236px;background:#1f2228;border:1px solid #3a3f49;border-radius:10px;padding:10px;box-shadow:0 8px 24px #0009;display:flex;flex-direction:column;gap:8px}
+.cp[hidden]{display:none}
+.cp-sv{position:relative;height:130px;border-radius:6px;touch-action:none;cursor:crosshair}
+.cp-hue{position:relative;height:14px;border-radius:7px;touch-action:none;cursor:pointer;background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
+.cp-sv-dot,.cp-hue-dot{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px #0008;pointer-events:none}
+.cp-hue-dot{top:50%}
+.cp-row{display:flex;gap:6px;align-items:center}
+.cp-now{width:32px;height:32px;border-radius:6px;border:1px solid #343944;flex:none}
+.cp-hex{flex:1;min-width:0;background:#101216;border:1px solid #343944;border-radius:7px;padding:6px 8px;font:14px ui-monospace,monospace;color:#e8e9ec}
+.cp-label{font-size:11px;color:#9aa0ab;margin-bottom:-4px}
+.cp-recent{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.cp-recent .muted{grid-column:1/-1}
+.cp-sw{height:26px;border:1px solid #343944;border-radius:6px;cursor:pointer;padding:0}
