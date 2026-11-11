@@ -3,25 +3,37 @@
 // Origin is at the floor centre of the piece; its front faces +z.
 import * as THREE from 'three';
 
+// Stacking flags (all optional):
+//   top:   has a flat top at its height that `onTop` pieces can rest on.
+//   under: leaves knee room below its top (TOP_T thick) for `tuck` pieces.
+//   tuck:  may slide partly under an `under` piece: its seat (seatTop) must
+//          clear the underside and its backrest (rear BACK_T cm) stay outside.
+//   onTop: dragged/added onto a `top` piece, it is lifted onto it; dragged
+//          off, it drops to the floor. A `top` piece carries what rests on it.
+export const TOP_T = 4; // table/desk top thickness
+export const BACK_T = 4; // chair backrest depth
+export const seatTop = (h) => h * 0.5 + 4; // chair seat height (top face)
+
 export const CATALOG = {
   bed: { label: 'Bed', w: 160, d: 200, h: 100, color: '#8fa3b8' },
   sofa: { label: 'Sofa', w: 200, d: 90, h: 85, color: '#6f8f7a' },
   armchair: { label: 'Armchair', w: 85, d: 85, h: 85, color: '#c58b5b' },
-  table: { label: 'Dining table', w: 140, d: 80, h: 75, color: '#a9784f' },
-  chair: { label: 'Chair', w: 45, d: 45, h: 90, color: '#d9c7a8' },
-  desk: { label: 'Desk', w: 140, d: 65, h: 75, color: '#e6e0d4' },
-  coffee: { label: 'Coffee table', w: 100, d: 55, h: 42, color: '#8a6a4a' },
+  table: { label: 'Dining table', w: 140, d: 80, h: 75, color: '#a9784f', top: true, under: true },
+  chair: { label: 'Chair', w: 45, d: 45, h: 90, color: '#d9c7a8', tuck: true },
+  desk: { label: 'Desk', w: 140, d: 65, h: 75, color: '#e6e0d4', top: true, under: true },
+  coffee: { label: 'Coffee table', w: 100, d: 55, h: 42, color: '#8a6a4a', top: true, under: true },
   wardrobe: { label: 'Wardrobe', w: 120, d: 55, h: 220, color: '#efece6' },
   shelf: { label: 'Bookshelf', w: 80, d: 30, h: 180, color: '#b58d62' },
-  tvunit: { label: 'TV unit', w: 160, d: 40, h: 50, color: '#5b4a3d' },
+  tvunit: { label: 'TV unit', w: 160, d: 40, h: 50, color: '#5b4a3d', top: true },
   tv: { label: 'TV', w: 120, d: 20, h: 70, color: '#1c1c1e', y: 50 },
   // noCol: excluded from overlap checks. opening: snaps to the nearest wall.
   rug: { label: 'Rug', w: 200, d: 140, h: 1, color: '#b9575b', noCol: true },
   lamp: { label: 'Floor lamp', w: 35, d: 35, h: 160, color: '#f1d9a0' },
-  plant: { label: 'Plant', w: 40, d: 40, h: 110, color: '#4f8a4f' },
+  tablelamp: { label: 'Table lamp', w: 25, d: 25, h: 50, color: '#f1d9a0', onTop: true },
+  plant: { label: 'Plant', w: 40, d: 40, h: 110, color: '#4f8a4f', onTop: true },
   door: { label: 'Door', w: 90, d: 8, h: 205, color: '#8b6b4a', noCol: true, opening: true },
   window: { label: 'Window', w: 120, d: 8, h: 120, color: '#9cc6e6', y: 90, noCol: true, opening: true },
-  box: { label: 'Custom box', w: 60, d: 60, h: 60, color: '#999999' },
+  box: { label: 'Custom box', w: 60, d: 60, h: 60, color: '#999999', top: true },
 };
 
 const lighten = (c, t) => '#' + new THREE.Color(c).lerp(new THREE.Color('#ffffff'), t).getHexString();
@@ -65,18 +77,18 @@ export const BUILD = {
     [-1, 1].forEach((s) => box(g, arm, h * 0.62, d * 0.82, s * (w / 2 - arm / 2), 0, d * 0.09, c)); // arms
   },
   table(g, w, d, h, c) {
-    box(g, w, 4, d, 0, h - 4, 0, c);
+    box(g, w, TOP_T, d, 0, h - TOP_T, 0, c);
     const lx = w / 2 - 6, lz = d / 2 - 6, leg = Math.max(3, Math.min(6, w / 14));
-    CORNERS.forEach(([sx, sz]) => box(g, leg, h - 4, leg, sx * lx, 0, sz * lz, darken(c, 0.8)));
+    CORNERS.forEach(([sx, sz]) => box(g, leg, h - TOP_T, leg, sx * lx, 0, sz * lz, darken(c, 0.8)));
   },
   chair(g, w, d, h, c) {
-    box(g, w, 4, d, 0, h * 0.5, 0, c); // seat
+    box(g, w, 4, d, 0, seatTop(h) - 4, 0, c); // seat
     CORNERS.forEach(([sx, sz]) => box(g, 3, h * 0.5, 3, sx * (w / 2 - 3), 0, sz * (d / 2 - 3), darken(c, 0.7)));
-    box(g, w, h * 0.5, 4, 0, h * 0.5, -d / 2 + 2, c); // back
+    box(g, w, h * 0.5, BACK_T, 0, h * 0.5, -d / 2 + BACK_T / 2, c); // back
   },
   desk(g, w, d, h, c) {
-    box(g, w, 4, d, 0, h - 4, 0, c);
-    [-1, 1].forEach((s) => box(g, 4, h - 4, d - 4, s * (w / 2 - 2), 0, 0, darken(c, 0.88)));
+    box(g, w, TOP_T, d, 0, h - TOP_T, 0, c);
+    [-1, 1].forEach((s) => box(g, 4, h - TOP_T, d - 4, s * (w / 2 - 2), 0, 0, darken(c, 0.88)));
     box(g, w - 8, h * 0.5, 2, 0, h * 0.45, -d / 2 + 3, darken(c, 0.88)); // modesty panel
   },
   wardrobe(g, w, d, h, c) {
@@ -163,6 +175,7 @@ export const BUILD = {
 
 // Aliases: these share a builder with a different default size.
 BUILD.coffee = BUILD.table;
+BUILD.tablelamp = BUILD.lamp;
 BUILD.armchair = BUILD.sofa;
 
 for (const type of Object.keys(CATALOG)) {
