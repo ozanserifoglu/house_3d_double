@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CATALOG, BUILD, TOP_T, BACK_T, seatTop } from './catalog.js';
 import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap, pointInFootprint, backStrip } from './layout-math.js';
 import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon, polygonsOverlap } from './polygon.js';
@@ -66,12 +67,22 @@ const view = $('#view');
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// PCF (not PCFSoft) because only it honours shadow.radius: soft edges.
+renderer.shadowMap.type = THREE.PCFShadowMap;
+// Filmic tone mapping: highlights roll off instead of clipping.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
 view.prepend(renderer.domElement);
 const canvas = renderer.domElement;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, 1, 10, 6000);
+
+// Soft studio-room environment: bounced light and gentle reflections on every
+// standard material. Its strength per preset is set via envMapIntensity in
+// applyLighting (three 0.160 has no scene.environmentIntensity).
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+pmrem.dispose();
 
 const hemi = new THREE.HemisphereLight(0xffffff, 0xb8a98f, 1);
 scene.add(hemi);
@@ -81,6 +92,7 @@ sun.position.set(300, 700, 250);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0005;
+sun.shadow.radius = 8; // texels of blur at the edges
 sun.shadow.camera.near = 10;
 sun.shadow.camera.far = 2500;
 scene.add(sun, sun.target);
@@ -369,25 +381,27 @@ function refreshOutlines() {
 }
 
 // ---------- Lighting presets ----------
+// env = environment (bounced light) strength, exposure = tone-mapping exposure.
 const LIGHTING = {
-  day: { bg: '#dbe6f0', hemi: 1, hemiSky: '#ffffff', hemiGnd: '#b8a98f', sun: 1.8, sunCol: '#fff6e5', lamp: 0 },
-  evening: { bg: '#2c2740', hemi: 0.5, hemiSky: '#ffcfa0', hemiGnd: '#4a3a46', sun: 0.7, sunCol: '#ff9f5a', lamp: 140 },
-  night: { bg: '#0c0f1d', hemi: 0.16, hemiSky: '#6f86ff', hemiGnd: '#1a1a28', sun: 0.12, sunCol: '#7f94ff', lamp: 240 },
+  day: { bg: '#dbe6f0', hemi: 0.15, hemiSky: '#ffffff', hemiGnd: '#b8a98f', sun: 2.6, sunCol: '#fff3dc', lamp: 0, env: 0.3, exposure: 0.75 },
+  evening: { bg: '#2c2740', hemi: 0.2, hemiSky: '#ffcfa0', hemiGnd: '#4a3a46', sun: 1.2, sunCol: '#ff9f5a', lamp: 260, env: 0.12, exposure: 0.8 },
+  night: { bg: '#0c0f1d', hemi: 0.1, hemiSky: '#6f86ff', hemiGnd: '#1a1a28', sun: 0.15, sunCol: '#7f94ff', lamp: 320, env: 0.03, exposure: 0.9 },
 };
 
+// Also called after (re)building items or rooms: new materials need their
+// environment strength, new lamps their intensity.
 function applyLighting() {
   const p = LIGHTING[settings.light];
   scene.background = new THREE.Color(p.bg);
+  renderer.toneMappingExposure = p.exposure;
   hemi.intensity = p.hemi;
   hemi.color.set(p.hemiSky);
   hemi.groundColor.set(p.hemiGnd);
   sun.intensity = p.sun;
   sun.color.set(p.sunCol);
-  items.forEach((it) => {
-    if (!it.obj) return;
-    it.obj.traverse((o) => {
-      if (o.userData.lampLight) o.intensity = p.lamp;
-    });
+  scene.traverse((o) => {
+    if (o.userData.lampLight) o.intensity = p.lamp;
+    if (o.material && o.material.isMeshStandardMaterial) o.material.envMapIntensity = p.env;
   });
 }
 
@@ -473,6 +487,7 @@ function buildRooms() {
   sc.top = ext;
   sc.bottom = -ext;
   sc.updateProjectionMatrix();
+  applyLighting(); // new room materials need their environment strength
   plan.refresh();
 }
 

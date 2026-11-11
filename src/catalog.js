@@ -2,6 +2,7 @@
 // Every builder: BUILD[type](group, w, d, h, color).
 // Origin is at the floor centre of the piece; its front faces +z.
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // Stacking flags (all optional):
 //   top:   has a flat top at its height that `onTop` pieces can rest on.
@@ -43,9 +44,12 @@ function material(color, opts) {
   return new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...opts });
 }
 
-// Box of size w×h×d whose bottom sits at y.
+// Box of size w×h×d whose bottom sits at y. Edges are rounded (up to
+// 1.5 cm) so they catch the light; very thin parts stay sharp.
 function box(g, w, h, d, x, y, z, color, opts) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material(color, opts));
+  const thin = Math.min(w, h, d);
+  const geo = thin < 2 ? new THREE.BoxGeometry(w, h, d) : new RoundedBoxGeometry(w, h, d, 2, Math.min(1.5, thin * 0.2));
+  const m = new THREE.Mesh(geo, material(color, opts));
   m.position.set(x, y + h / 2, z);
   g.add(m);
   return m;
