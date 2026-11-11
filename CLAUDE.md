@@ -88,10 +88,16 @@ and preview new furniture. Simple > fancy.
   of cm or the AO vanishes). On/off = Room tab, stored per device in
   localStorage `rp3d_ao` (not in the layout); default off on coarse-pointer
   (touch) screens.
+- Colour picker (`color-picker.js`, `attachColorPickers(store)`): replaces
+  the native dialog on every `input[type=color]` (the Windows one ignores
+  the current value). The `<input>` stays the value holder: picking fires
+  `input` events (live), closing fires one `change` if the colour changed
+  (→ one undo step via the global listener); Esc reverts. Recent colours
+  (12, shared by all fields) in localStorage `rp3d_recent_colors`.
 - Walls are boxes outside the room bounds; they auto-hide when the
   camera is behind them and all hide in top view; skirting stays.
-- Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`, `rp3d_ao`
-  (in-memory fallback). Layout JSON v2 =
+- Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`, `rp3d_ao`,
+  `rp3d_recent_colors` (in-memory fallback). Layout JSON v2 =
   `{version:2, settings:{light,snap,innerWallT}, rooms:[...], items:[...without obj]}`.
   `rooms[].locked` and `rooms[].roomLock` are optional (older saves load
   unlocked).
@@ -103,12 +109,13 @@ and preview new furniture. Simple > fancy.
 - Doors/windows are plates on walls (no holes).
 
 ## Roadmap (from the original handoff)
-1. Realistic render style: soft shadows, environment map / sky light,
-   ACES tone mapping, textures (wood, fabric, tile), beveled edges, AO,
-   window light.
+1. Realistic render style. Done: soft shadows, environment light
+   (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO).
+   Left: textures (wood, fabric, tile), window light.
 2. Import real furniture meshes (GLB/glTF first; OBJ/FBX later): file
    picker, scale to cm, then behave like any item (drag/rotate/overlap/
    save). Keep models < ~5 MB. Saved layouts reference files in
    `public/models/` so they reload.
 3. Enter real apartment dimensions and furniture.
-4. Maybe: non-rectangular / multi-room, real wall holes for doors/windows.
+4. Maybe: real wall holes for doors/windows, openings between rooms.
+   (Non-rectangular and multi-room are done.)
