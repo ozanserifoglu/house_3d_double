@@ -10,17 +10,19 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { edges, offsetPolygon, isSimple, closestOnSegment, normalizePolygon, interiorPoint, bounds, signedArea, dist, pointInPolygon, polygonsOverlap } from './polygon.js';
 import { wallPieces } from './walls.js';
-import { isWallLocked, isCornerPinned, toggleWallLock } from './locks.js';
+import { isWallLocked, endsLockedWall, toggleWallLock, lockedWalls, relocateLocks, carryLocked } from './locks.js';
 
 const FRUSTUM = 1000; // cm visible top to bottom at zoom 1
 const HIT = 10; // pick radius, px
 const copyPts = (pts) => pts.map((p) => [p[0], p[1]]);
+const ROOM_LOCKED = 'This room is locked: unlock it to change it';
+const LOCK_BROKEN = "That would change a locked wall's length";
 const fmtLen = (cm) => {
   const r = Math.round(cm * 10) / 10;
   return `${r % 1 ? r.toFixed(1) : r} cm`;
 };
 
-const HINT_EDIT = 'Plan: drag a corner or wall · click a length to type it · double-click a wall to add a corner · select a wall + Lock wall to keep it fixed · right-drag to pan, wheel to zoom';
+const HINT_EDIT = 'Plan: drag a corner or wall · click a length to type it · double-click a wall to add a corner · select a wall + Lock wall to keep its length · Lock room when a room is done · right-drag to pan, wheel to zoom';
 const HINT_DRAW = 'Draw: click to place corners (they snap one wall away from other rooms) · type a length + Enter · Shift = any angle · click the first corner or press Enter to finish · Esc cancels';
 
 /**
@@ -93,6 +95,7 @@ export function createPlan(ctx) {
       <button class="btn" data-a="split">Add corner</button>
       <button class="btn" data-a="del">Delete corner</button>
       <button class="btn" data-a="lock">Lock wall</button>
+      <button class="btn" data-a="lockroom">Lock room</button>
       <button class="btn" data-a="fit">Fit</button>
     </div>
     <div data-mode="draw">
@@ -267,6 +270,7 @@ export function createPlan(ctx) {
     mode = 'draw';
     drawTarget = targetId;
     const t = roomById(targetId);
+    if (t && t.roomLock) return flash(ROOM_LOCKED);
     bar.querySelector('.what').textContent = t ? `Redraw ${t.name}:` : 'New room:';
     draft = [];
     cursor = null;
@@ -344,7 +348,9 @@ export function createPlan(ctx) {
   }
 
   // Commit an edited outline if it is valid, else explain and keep the old one.
-  function applyOutline(room, pts, failMsg) {
+  // `locksBefore`: the room's wall locks as they were before the edit. They
+  // are moved onto the new outline; every locked wall must keep its length.
+  function applyOutline(room, pts, failMsg, locksBefore = room.locked) {
     pts = normalizePolygon(pts);
     if (pts.length < 3 || !isSimple(pts)) {
       flash(failMsg);
@@ -354,7 +360,13 @@ export function createPlan(ctx) {
       flash("Rooms can't overlap: leave a wall between them");
       return false;
     }
+    const locks = relocateLocks(locksBefore, pts);
+    if (!locks) {
+      flash(LOCK_BROKEN);
+      return false;
+    }
     room.pts = pts;
+    room.locked = locks;
     ctx.onDone();
     return true;
   }
@@ -364,17 +376,25 @@ export function createPlan(ctx) {
   // so it stays put and a jog appears instead (that's how notches are made:
   // add two corners on a wall, drag the piece between them). Otherwise each
   // end slides along its neighbouring wall, which keeps that wall's angle.
+  // A locked wall must move whole: its ends slide along its neighbours only
+  // when those are parallel (e.g. a rectangle's sides), else both ends move
+  // straight out and the neighbours turn. Locked walls touching the moved
+  // ends are carried along (carryLocked).
   function prepareWallDrag() {
     const room = roomById(drag.roomId), n = room.pts.length, i = drag.i;
     const E = edges(room.pts), e = E[i], prev = E[(i - 1 + n) % n], next = E[(i + 1) % n];
     const nearlyParallel = (f) => Math.abs(f.ux * e.uz - f.uz * e.ux) < 0.2;
     const work = [];
     for (let k = 0; k < n; k++) work.push([...room.pts[(i + k) % n]]);
-    drag.dirA = nearlyParallel(prev) ? null : [prev.ux, prev.uz];
-    drag.dirB = nearlyParallel(next) ? null : [next.ux, next.uz];
-    if (!drag.dirB) work.splice(2, 0, [...work[1]]);
-    if (!drag.dirA) work.push([...work[0]]);
+    const jogA = nearlyParallel(prev), jogB = nearlyParallel(next);
+    drag.dirA = jogA ? null : [prev.ux, prev.uz];
+    drag.dirB = jogB ? null : [next.ux, next.uz];
+    const sidesParallel = drag.dirA && drag.dirB && Math.abs(prev.ux * next.uz - prev.uz * next.ux) < 1e-6;
+    if (isWallLocked(room, i) && !sidesParallel) drag.dirA = drag.dirB = null;
+    if (jogB) work.splice(2, 0, [...work[1]]);
+    if (jogA) work.push([...work[0]]);
     drag.base = copyPts(work);
+    drag.lockedW = lockedWalls(work, drag.locks);
     drag.work = work;
     drag.e = e;
   }
@@ -408,8 +428,9 @@ export function createPlan(ctx) {
       const k = dn / (dir[0] * e.nx + dir[1] * e.nz);
       return [q[0] + dir[0] * k, q[1] + dir[1] * k];
     };
-    drag.work[0] = shift(base[0], dirA);
-    drag.work[1] = shift(base[1], dirB);
+    const a = shift(base[0], dirA), b = shift(base[1], dirB);
+    const moved = new Map([[0, [a[0] - base[0][0], a[1] - base[0][1]]], [1, [b[0] - base[1][0], b[1] - base[1][1]]]]);
+    drag.work = carryLocked(base, drag.lockedW, moved);
   }
 
   function endDrag() {
@@ -417,43 +438,50 @@ export function createPlan(ctx) {
     if (!room || !drag.moved) return;
     if (drag.kind === 'wall') {
       const a = drag.work[0], b = drag.work[1];
-      if (applyOutline(room, drag.work, "Walls can't cross each other")) {
+      if (applyOutline(room, drag.work, "Walls can't cross each other", drag.locks)) {
         const n = room.pts.length;
         const k = room.pts.findIndex((q, j) => dist(q, a) < 0.01 && dist(room.pts[(j + 1) % n], b) < 0.01);
         select(k >= 0 ? { roomId: room.id, kind: 'wall', i: k } : null);
         return;
       }
-    } else if (applyOutline(room, drag.work, "Walls can't cross each other")) {
+    } else if (applyOutline(room, drag.work, "Walls can't cross each other", drag.locks)) {
       const p = drag.work[drag.i];
       const k = room.pts.findIndex((q) => dist(q, p) < 0.01);
       select(k >= 0 ? { roomId: room.id, kind: 'corner', i: k } : null);
       return;
     }
     room.pts = drag.orig;
+    room.locked = drag.locks;
     select(null);
     ctx.onLive();
   }
 
   // Typing a wall's length moves its end corner along the wall. If the next
   // wall is square to it, that whole next wall moves too, so it stays square.
-  // If that would move a locked wall, the start end moves instead (and the
-  // previous wall if square); if both ends are held, nothing changes.
+  // Locked walls touching what moves are carried along (carryLocked). If that
+  // would still stretch a locked wall, the start end moves instead (and the
+  // previous wall if square); if neither works, nothing changes.
   function setWallLength(room, i, L) {
+    if (room.roomLock) return flash(ROOM_LOCKED);
     if (isWallLocked(room, i)) return flash('This wall is locked: unlock it to change its length');
     const n = room.pts.length, E = edges(room.pts), e = E[i];
     const square = (f) => n > 3 && Math.abs(e.ux * f.ux + e.uz * f.uz) < 1e-3;
-    const fwd = [(i + 1) % n], back = [i];
-    if (square(E[(i + 1) % n])) fwd.push((i + 2) % n);
-    if (square(E[(i - 1 + n) % n])) back.push((i - 1 + n) % n);
-    const free = (ks) => ks.every((k) => !isCornerPinned(room, k));
-    const sign = free(fwd) ? 1 : free(back) ? -1 : 0;
-    if (!sign) return flash('Both ends of this wall are held by locked walls');
-    const delta = (L - e.len) * sign, pts = copyPts(room.pts);
-    for (const k of sign > 0 ? fwd : back) pts[k] = [pts[k][0] + e.ux * delta, pts[k][1] + e.uz * delta];
-    applyOutline(room, pts, "That length would make walls cross");
+    const locked = lockedWalls(room.pts, room.locked);
+    const attempt = (sign) => {
+      const delta = (L - e.len) * sign, v = [e.ux * delta, e.uz * delta];
+      const [hold, end, beyond, f] = sign > 0 ? [i, (i + 1) % n, (i + 2) % n, E[(i + 1) % n]] : [(i + 1) % n, i, (i - 1 + n) % n, E[(i - 1 + n) % n]];
+      const moved = new Map([[hold, [0, 0]], [end, v]]);
+      if (square(f)) moved.set(beyond, v);
+      const pts = normalizePolygon(carryLocked(room.pts, locked, moved));
+      return relocateLocks(room.locked, pts) ? pts : null;
+    };
+    const pts = attempt(1) || attempt(-1);
+    if (!pts) return flash('Locked walls hold both ends of this wall');
+    applyOutline(room, pts, 'That length would make walls cross');
   }
 
   function splitWall(room, i, p) {
+    if (room.roomLock) return flash(ROOM_LOCKED);
     if (isWallLocked(room, i)) return flash('This wall is locked: unlock it to add a corner');
     const e = edges(room.pts)[i];
     let t = p ? closestOnSegment(p, e.a, e.b).t : e.len / 2;
@@ -467,7 +495,8 @@ export function createPlan(ctx) {
     const room = sel && roomById(sel.roomId);
     if (!room || sel.kind !== 'corner') return;
     if (room.pts.length <= 3) return flash('A room needs at least 3 corners');
-    if (isCornerPinned(room, sel.i)) return flash('This corner belongs to a locked wall');
+    if (room.roomLock) return flash(ROOM_LOCKED);
+    if (endsLockedWall(room, sel.i)) return flash('This corner ends a locked wall: unlock it to remove the corner');
     const pts = copyPts(room.pts);
     pts.splice(sel.i, 1);
     if (applyOutline(room, pts, 'Removing that corner would make walls cross')) select(null);
@@ -510,11 +539,16 @@ export function createPlan(ctx) {
   function renderBar() {
     bar.querySelector('[data-mode="edit"]').style.display = mode === 'edit' ? '' : 'none';
     bar.querySelector('[data-mode="draw"]').style.display = mode === 'draw' ? '' : 'none';
-    const room = sel && roomById(sel.roomId);
-    bar.querySelector('[data-a="split"]').disabled = !(room && sel.kind === 'wall');
-    bar.querySelector('[data-a="del"]').disabled = !(room && sel.kind === 'corner' && room.pts.length > 3);
+    const room = sel && roomById(sel.roomId), editable = room && !room.roomLock;
+    const cur = roomById(ctx.getSelectedRoomId());
+    bar.querySelector('[data-a="draw"]').disabled = !!(cur && cur.roomLock);
+    bar.querySelector('[data-a="split"]').disabled = !(editable && sel.kind === 'wall');
+    bar.querySelector('[data-a="del"]').disabled = !(editable && sel.kind === 'corner' && room.pts.length > 3);
+    const roomBtn = bar.querySelector('[data-a="lockroom"]');
+    roomBtn.disabled = !cur;
+    roomBtn.textContent = cur && cur.roomLock ? 'Unlock room' : 'Lock room';
     const lockBtn = bar.querySelector('[data-a="lock"]');
-    lockBtn.disabled = !(room && sel.kind === 'wall');
+    lockBtn.disabled = !(editable && sel.kind === 'wall');
     lockBtn.textContent = room && sel.kind === 'wall' && isWallLocked(room, sel.i) ? 'Unlock wall' : 'Lock wall';
     bar.querySelector('[data-a="close"]').disabled = draft.length < 3;
     bar.querySelector('[data-a="undo-pt"]').disabled = !draft.length;
@@ -526,8 +560,15 @@ export function createPlan(ctx) {
     else if (a === 'draw') startDraw(ctx.getSelectedRoomId());
     else if (a === 'split' && room && sel.kind === 'wall') splitWall(room, sel.i, null);
     else if (a === 'del') deleteCorner();
-    else if (a === 'lock' && room && sel.kind === 'wall') {
+    else if (a === 'lock' && room && sel.kind === 'wall' && !room.roomLock) {
       toggleWallLock(room, sel.i);
+      ctx.onDone(); // saved + undo step
+      renderBar();
+    } else if (a === 'lockroom') {
+      const cur = roomById(ctx.getSelectedRoomId());
+      if (!cur) return;
+      cur.roomLock = !cur.roomLock;
+      flash(`${cur.name} is ${cur.roomLock ? 'locked' : 'unlocked'}`);
       ctx.onDone(); // saved + undo step
       renderBar();
     } else if (a === 'fit') fit();
@@ -564,10 +605,9 @@ export function createPlan(ctx) {
     }
     select({ roomId: h.roomId, kind: h.kind, i: h.i });
     const room = roomById(h.roomId);
-    drag = { kind: h.kind, roomId: h.roomId, i: h.i, startS: s, start: p, orig: copyPts(room.pts), moved: false, valid: true };
+    drag = { kind: h.kind, roomId: h.roomId, i: h.i, startS: s, start: p, orig: copyPts(room.pts), locks: room.locked, moved: false, valid: true };
     // Selecting still works; moving is refused once the pointer actually moves.
-    if (h.kind === 'corner' && isCornerPinned(room, h.i)) drag.blocked = 'This corner belongs to a locked wall';
-    if (h.kind === 'wall' && isWallLocked(room, h.i)) drag.blocked = 'This wall is locked';
+    if (room.roomLock) drag.blocked = ROOM_LOCKED;
     return true;
   }
 
@@ -580,27 +620,25 @@ export function createPlan(ctx) {
       const room = roomById(drag.roomId);
       if (!drag.moved) {
         if (Math.hypot(s[0] - drag.startS[0], s[1] - drag.startS[1]) < 3) return true;
-        if (!drag.blocked && drag.kind === 'wall') {
-          // An end that slides along a locked neighbour would change that wall.
-          // (A straight-on neighbour gets a jog instead and keeps its corners.)
-          prepareWallDrag();
-          const n = room.pts.length;
-          if ((drag.dirA && isWallLocked(room, (drag.i - 1 + n) % n)) || (drag.dirB && isWallLocked(room, (drag.i + 1) % n))) {
-            drag.blocked = 'A wall next to it is locked: unlock it to move this one';
-          }
-        }
         if (drag.blocked) {
           flash(drag.blocked);
           drag.dead = true; // ignore the rest of this press (no pan either)
           return true;
         }
         drag.moved = true;
-        if (drag.kind !== 'wall') drag.work = copyPts(drag.orig);
+        if (drag.kind === 'wall') prepareWallDrag();
+        else drag.lockedW = lockedWalls(drag.orig, drag.locks);
       }
-      if (drag.kind === 'corner') drag.work[drag.i] = snapCorner(p, room, drag.work, drag.i, e.shiftKey);
-      else moveWall(p, e.shiftKey);
+      if (drag.kind === 'corner') {
+        // Locked walls at the corner move whole with it.
+        const o = drag.orig[drag.i], q = snapCorner(p, room, drag.orig, drag.i, e.shiftKey);
+        drag.work = carryLocked(drag.orig, drag.lockedW, new Map([[drag.i, [q[0] - o[0], q[1] - o[1]]]]));
+      } else moveWall(p, e.shiftKey);
       room.pts = normalizePolygon(drag.work);
-      drag.valid = room.pts.length >= 3 && isSimple(room.pts) && !overlapsOther(room.pts, room.id);
+      // Locks follow their walls live; a locked wall that would stretch = invalid.
+      const locks = room.pts.length >= 3 ? relocateLocks(drag.locks, room.pts) : null;
+      room.locked = locks || drag.locks;
+      drag.valid = !!locks && isSimple(room.pts) && !overlapsOther(room.pts, room.id);
       ctx.onLive();
       dirty = true;
       return true;
@@ -631,7 +669,10 @@ export function createPlan(ctx) {
       controls.enabled = true;
       if (pr.label) {
         const r = roomById(pr.label.roomId);
-        if (r && isWallLocked(r, pr.label.i)) {
+        if (r && r.roomLock) {
+          select({ roomId: r.id, kind: 'wall', i: pr.label.i });
+          flash(ROOM_LOCKED);
+        } else if (r && isWallLocked(r, pr.label.i)) {
           select({ roomId: r.id, kind: 'wall', i: pr.label.i }); // so Unlock is one tap away
           flash('This wall is locked: unlock it to change its length');
         } else openEditor(pr.label.roomId, pr.label.i);
@@ -648,7 +689,10 @@ export function createPlan(ctx) {
   function pointerCancel() {
     if (drag && drag.moved) {
       const room = roomById(drag.roomId);
-      if (room) room.pts = drag.orig;
+      if (room) {
+        room.pts = drag.orig;
+        room.locked = drag.locks;
+      }
       ctx.onLive();
     }
     drag = null;
@@ -730,11 +774,11 @@ export function createPlan(ctx) {
       });
       scr.forEach((q, i) => {
         const on = sel && sel.roomId === r.id && sel.kind === 'corner' && sel.i === i;
-        out.push(`<circle class="pc${on ? ' on' : ''}${isCornerPinned(r, i) ? ' lk' : ''}" cx="${f1(q[0])}" cy="${f1(q[1])}" r="${on ? 6 : 4.5}"/>`);
+        out.push(`<circle class="pc${on ? ' on' : ''}" cx="${f1(q[0])}" cy="${f1(q[1])}" r="${on ? 6 : 4.5}"/>`);
       });
       const c = toScreen(interiorPoint(pts));
       const name = String(r.name).replace(/[&<>]/g, (ch) => `&#${ch.charCodeAt(0)};`);
-      out.push(`<text class="pa" x="${f1(c[0])}" y="${f1(c[1])}">${name} · ${(Math.abs(signedArea(pts)) / 10000).toFixed(1)} m²</text>`);
+      out.push(`<text class="pa" x="${f1(c[0])}" y="${f1(c[1])}">${r.roomLock ? '🔒 ' : ''}${name} · ${(Math.abs(signedArea(pts)) / 10000).toFixed(1)} m²</text>`);
     }
 
     if (mode === 'draw') {
@@ -870,7 +914,10 @@ export function createPlan(ctx) {
     update,
     fit,
     startDraw,
-    refresh: () => (dirty = true),
+    refresh: () => {
+      dirty = true;
+      renderBar();
+    },
     pointerDown,
     pointerMove,
     pointerUp,
