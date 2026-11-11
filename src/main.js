@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CATALOG, BUILD, TOP_T, BACK_T, seatTop } from './catalog.js';
 import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap, pointInFootprint, backStrip } from './layout-math.js';
 import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon, polygonsOverlap } from './polygon.js';
@@ -96,6 +100,24 @@ sun.shadow.radius = 8; // texels of blur at the edges
 sun.shadow.camera.near = 10;
 sun.shadow.camera.far = 2500;
 scene.add(sun, sun.target);
+
+// Ambient occlusion: soft darkening where surfaces meet (furniture on the
+// floor, room corners). 3D view only; Plan view renders directly. The
+// composer's buffers are multisampled because renderer antialias doesn't
+// reach them; OutputPass applies the tone mapping + sRGB once at the end.
+// On/off is a per-device preference (rp3d_ao), not part of the layout: it is
+// about the device's GPU, and defaults off on touch (phone) screens.
+const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
+const aoPass = new GTAOPass(scene, camera, 1, 1);
+// Lengths are cm: AO reaches 40 cm out from a surface; `thickness` is how far
+// (view depth) an occluder may sit in front of a point and still count — the
+// default 1 would be 1 cm here and the AO all but vanishes. scale > 1 deepens it.
+aoPass.updateGtaoMaterial({ radius: 40, thickness: 100, distanceExponent: 1, scale: 1.5, samples: 16 });
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(aoPass);
+composer.addPass(new OutputPass());
+const aoSaved = store.get('rp3d_ao');
+let aoOn = aoSaved !== null ? aoSaved === '1' : !matchMedia('(pointer: coarse)').matches;
 
 const roomGroup = new THREE.Group();
 scene.add(roomGroup);
@@ -718,6 +740,7 @@ function syncRoomInputs() {
   $('#r-wall').value = r.wall;
   $('#r-light').value = settings.light;
   $('#r-snap').value = settings.snap;
+  $('#r-ao').value = aoOn ? 'on' : 'off';
   // A locked room ("done") keeps its outline and ceiling; name/colours stay editable.
   const lk = !!r.roomLock;
   ['#r-w', '#r-d', '#r-h', '#b-rect', '#b-draw'].forEach((s) => ($(s).disabled = lk));
@@ -853,6 +876,10 @@ $('#r-light').addEventListener('change', (e) => {
   settings.light = e.target.value;
   applyLighting();
   scheduleAutosave();
+});
+$('#r-ao').addEventListener('change', (e) => {
+  aoOn = e.target.value === 'on';
+  store.set('rp3d_ao', aoOn ? '1' : '0');
 });
 $('#r-snap').addEventListener('change', (e) => {
   settings.snap = parseFloat(e.target.value);
@@ -1082,6 +1109,7 @@ function resize() {
   const w = view.clientWidth, h = view.clientHeight;
   if (!w || !h) return;
   renderer.setSize(w, h, false);
+  composer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   plan.resize(w, h);
@@ -1100,7 +1128,8 @@ function animate() {
     wall.m.visible = !camOutside && !topDown;
   });
   if (plan.active) plan.update();
-  renderer.render(scene, activeCamera());
+  if (aoOn && !plan.active) composer.render();
+  else renderer.render(scene, activeCamera());
   requestAnimationFrame(animate);
 }
 
