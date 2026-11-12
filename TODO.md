@@ -68,7 +68,8 @@ Each was tested on its own branch; the combined build only got a build and one d
 - [ ] `applyLighting()` runs on every `rebuildItem` call and walks all items to find lamp/window lights.
 - [ ] Adding or removing a window (or lamp) changes the light count, which recompiles every material's shader (a short hitch on slow GPUs).
 - [ ] Undo/redo restores via `loadLayout`, which rebuilds every item and the room. Instant at this size; switch to per-item diffs if layouts get large or GLB models are slow to rebuild.
-- [ ] `main.js` keeps growing with shared state at the top level (now including rooms and room selection). Move rooms and selection into their own module before the GLB-import work.
+- [ ] `main.js` still holds the items (list, item selection, build/stacking/overlaps, save/load, undo) and all panel UI (~1,090 lines). An `items.js` would be the natural next split before GLB import, since a GLB model is an item type.
+- [ ] `plan.js` gets rooms through `ctx.getRooms()` and has its own copy of `overlapsOthers`; it could import both from `rooms.js`.
 
 ## Not done
 - [ ] No single-file offline build of the new source. `reference/room-planner-v1-offline.html` still works on its own (see `vite-plugin-singlefile` if needed).

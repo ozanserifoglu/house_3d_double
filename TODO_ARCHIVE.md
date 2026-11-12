@@ -4,6 +4,9 @@ Finished items moved out of [TODO.md](TODO.md), newest first.
 
 ## 2026-11-12
 
+### Code smells
+- [x] Rooms and room selection moved out of `main.js`: room data in `rooms.js`, room meshes and wall auto-hide in `room-mesh.js`. No behaviour or save-format change.
+
 ### Roadmap
 - [x] Textures (roadmap item 1): wood on tables, coffee table, desk, wardrobe, bookshelf, TV unit and doors; fabric on sofa, armchair, bed, chair seats/backs and rug; floor look per room (plain, parquet, tile). Canvas-drawn in code, tinted by the item/floor colour, real-world cm scale (`textures.js`).
 - [x] Window light: one `RectAreaLight` per window, the window's size, on its room-facing side; strength/colour per lighting preset (bright by day, a dim warm glow in the evening, off at night); the glass glows with it. No shadows (open items in TODO.md).
