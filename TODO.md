@@ -18,6 +18,11 @@ Everything else from the port has been clicked through on desktop.
 - [ ] Touch: pinch zoom and drag on a phone; dragging in the colour picker's square and hue bar
 - [ ] Phone performance with ambient occlusion on (it roughly doubles the 3D work per frame; it defaults to off on touch screens)
 
+## Untested since textures + window light were merged together (PRs #13, #14)
+Each was tested on its own branch; the combined build only got a build and one daytime 3D screenshot.
+- [ ] Click through the evening/night presets, Eye level, AO off, and drag/undo of a window over textured furniture and a parquet/tile floor.
+- [ ] Phone: first-draw cost of the textures plus the window lights' per-pixel cost (each `RectAreaLight` adds work to every standard material).
+
 ## Bugs / UX
 - [ ] Undo history is in memory only: a page reload starts a fresh history (the layout itself is still autosaved).
 - [ ] `R` rotates even with Ctrl held, so Ctrl+R both rotates the piece and reloads the page (pre-existing).
