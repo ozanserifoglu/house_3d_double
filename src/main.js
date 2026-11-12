@@ -13,6 +13,7 @@ import { pruneLocks, parseLocks, relocateLocks } from './locks.js';
 import { createPlan } from './plan.js';
 import { wallPieces } from './walls.js';
 import { attachColorPickers } from './color-picker.js';
+import { surface, setTextureAnisotropy, FLOOR_KINDS } from './textures.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -42,7 +43,8 @@ attachColorPickers(store);
 // View/drawing preferences, not part of undo history. innerWallT = the gap
 // left between rooms when snapping one to another (the wall between them).
 const settings = { light: 'day', snap: 5, innerWallT: 10 };
-// Room: { id, name, pts: [[x, z], ...] inside outline (see polygon.js), h, floor, wall }
+// Room: { id, name, pts: [[x, z], ...] inside outline (see polygon.js), h, floor, wall,
+//   floorTex? ('parquet' | 'tile'; missing = plain) }
 let rooms = [];
 let nextRoomId = 1;
 const WALL_T = 12; // outer wall thickness; walls sit outside the outline
@@ -77,6 +79,7 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 // Filmic tone mapping: highlights roll off instead of clipping.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 view.prepend(renderer.domElement);
+setTextureAnisotropy(Math.min(8, renderer.capabilities.getMaxAnisotropy()));
 const canvas = renderer.domElement;
 
 const scene = new THREE.Scene();
@@ -272,7 +275,7 @@ const plan = createPlan({
     if (target) target.pts = pts;
     else {
       const from = currentRoom();
-      const room = newRoom({ pts, name: nextRoomName(), h: from.h, floor: from.floor, wall: from.wall });
+      const room = newRoom({ pts, name: nextRoomName(), h: from.h, floor: from.floor, floorTex: from.floorTex, wall: from.wall });
       rooms.push(room);
       selectedRoomId = room.id;
     }
@@ -450,24 +453,6 @@ function applyLighting() {
 }
 
 // ---------- Room ----------
-// 50 cm floor tiles drawn on a canvas. Floor UVs are in cm.
-function makeFloorTexture(color) {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = color;
-  ctx.fillRect(0, 0, 128, 128);
-  ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(0, 0, 128, 128);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1 / 50, 1 / 50);
-  tex.anisotropy = 4;
-  return tex;
-}
-
 // Floor-plane polygon [[x, z], ...] → THREE.Shape. Shapes live in the xy
 // plane, so z is stored as -y and the geometry is turned flat afterwards.
 const toShape = (pts) => new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
@@ -484,7 +469,7 @@ function buildRooms() {
   roomGroup.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
-      if (o.material.map) o.material.map.dispose();
+      if (o.material.map && !o.material.map.userData.shared) o.material.map.dispose(); // floor maps are shared (textures.js)
       o.material.dispose();
     }
   });
@@ -492,9 +477,10 @@ function buildRooms() {
   walls = [];
 
   rooms.forEach((r) => {
+    // Floor UVs are the shape's coordinates, i.e. cm, as textures.js expects.
     const floorGeo = new THREE.ShapeGeometry(toShape(r.pts));
     floorGeo.rotateX(-Math.PI / 2);
-    const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ map: makeFloorTexture(r.floor), roughness: 0.9 }));
+    const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: r.floor, ...surface(r.floorTex || 'plain') }));
     floor.receiveShadow = true;
     roomGroup.add(floor);
 
@@ -759,6 +745,7 @@ function syncRoomInputs() {
   setIfNotFocused($('#r-name'), r.name);
   setIfNotFocused($('#r-gap'), settings.innerWallT);
   $('#r-floor').value = r.floor;
+  $('#r-floortex').value = r.floorTex || 'plain';
   $('#r-wall').value = r.wall;
   $('#r-light').value = settings.light;
   $('#r-snap').value = settings.snap;
@@ -889,6 +876,15 @@ $('#r-floor').addEventListener('input', (e) => {
   buildRooms();
   scheduleAutosave();
 });
+// A <select> fires 'change' once per pick; the global 'change' listener
+// (registered on document, so it runs after this) records the undo step.
+$('#r-floortex').addEventListener('change', (e) => {
+  const r = currentRoom();
+  if (e.target.value === 'plain') delete r.floorTex; // plain = no field, as in older saves
+  else r.floorTex = e.target.value;
+  buildRooms();
+  scheduleAutosave();
+});
 $('#r-wall').addEventListener('input', (e) => {
   currentRoom().wall = e.target.value;
   buildRooms();
@@ -926,7 +922,7 @@ $$('#views [data-view]').forEach((b) => b.addEventListener('click', () => setVie
 // ---------- Save / load ----------
 const itemData = () => items.map(({ id, type, w, d, h, y, x, z, rot, color }) => ({ id, type, w, d, h, y, x, z, rot, color }));
 
-const roomData = () => rooms.map(({ id, name, pts, h, floor, wall, locked, roomLock }) => ({ id, name, pts, h, floor, wall, locked, roomLock }));
+const roomData = () => rooms.map(({ id, name, pts, h, floor, floorTex, wall, locked, roomLock }) => ({ id, name, pts, h, floor, floorTex, wall, locked, roomLock }));
 
 // Layout JSON v2: { version, settings, rooms, items }.
 // v1 had a single rectangle: { room: { w, d, h, floor, wall, light, snap }, items }.
@@ -939,7 +935,7 @@ function parseRooms(parsed) {
   if (Array.isArray(parsed.rooms)) {
     const list = parsed.rooms
       .filter((r) => Array.isArray(r.pts))
-      .map((r) => ({ ...r, pts: normalizePolygon(r.pts.filter((p) => isFinite(p[0]) && isFinite(p[1]))), locked: parseLocks(r.locked), roomLock: r.roomLock === true }))
+      .map((r) => ({ ...r, pts: normalizePolygon(r.pts.filter((p) => isFinite(p[0]) && isFinite(p[1]))), locked: parseLocks(r.locked), roomLock: r.roomLock === true, floorTex: FLOOR_KINDS.includes(r.floorTex) && r.floorTex !== 'plain' ? r.floorTex : undefined }))
       .filter((r) => r.pts.length >= 3)
       .map(({ id, ...r }) => newRoom({ ...r, ...(Number.isInteger(id) ? { id } : {}) }));
     if (list.length) return list;
@@ -1043,7 +1039,7 @@ $('#b-copy').addEventListener('click', async () => {
 
 function loadSample() {
   clearItems();
-  const keep = rooms[0] ? { floor: rooms[0].floor, wall: rooms[0].wall } : {}; // colours survive, as before
+  const keep = rooms[0] ? { floor: rooms[0].floor, floorTex: rooms[0].floorTex, wall: rooms[0].wall } : {}; // colours (and floor look) survive, as before
   rooms = [newRoom({ pts: rectPts(500, 400), h: 260, ...keep })];
   plan.reset();
   buildRooms();

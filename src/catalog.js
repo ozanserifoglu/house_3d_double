@@ -3,6 +3,7 @@
 // Origin is at the floor centre of the piece; its front faces +z.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { surface, boxUVsCm } from './textures.js';
 
 // Stacking flags (all optional):
 //   top:   has a flat top at its height that `onTop` pieces can rest on.
@@ -40,15 +41,24 @@ export const CATALOG = {
 const lighten = (c, t) => '#' + new THREE.Color(c).lerp(new THREE.Color('#ffffff'), t).getHexString();
 const darken = (c, t) => '#' + new THREE.Color(c).multiplyScalar(t).getHexString();
 
+// opts.tex = a surface kind from textures.js ('wood', 'fabric'): its shared
+// map (tinted by `color`) and roughness. Which parts get which surface is
+// decided here per type, so the saved item format doesn't change.
 function material(color, opts) {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...opts });
+  const { tex, ...rest } = opts || {};
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...(tex ? surface(tex) : {}), ...rest });
 }
+
+const WOOD = { tex: 'wood' };
+const FABRIC = { tex: 'fabric' };
 
 // Box of size w×h×d whose bottom sits at y. Edges are rounded (up to
 // 1.5 cm) so they catch the light; very thin parts stay sharp.
+// Textured boxes get UVs in cm so the texture keeps its real-world size.
 function box(g, w, h, d, x, y, z, color, opts) {
   const thin = Math.min(w, h, d);
   const geo = thin < 2 ? new THREE.BoxGeometry(w, h, d) : new RoundedBoxGeometry(w, h, d, 2, Math.min(1.5, thin * 0.2));
+  if (opts && opts.tex) boxUVsCm(geo, w, h, d, x, y + h / 2, z);
   const m = new THREE.Mesh(geo, material(color, opts));
   m.position.set(x, y + h / 2, z);
   g.add(m);
@@ -67,49 +77,49 @@ const CORNERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
 
 export const BUILD = {
   bed(g, w, d, h, c) {
-    box(g, w, 30, d, 0, 0, 0, darken(c, 0.6)); // frame
-    box(g, w - 6, 22, d - 8, 0, 30, 4, '#f4f1ea'); // mattress
-    box(g, w - 4, 26, d * 0.55, 0, 30, d / 2 - d * 0.275 - 4, c); // duvet
-    box(g, w, h, 8, 0, 0, -d / 2 + 4, darken(c, 0.6)); // headboard
-    [-1, 1].forEach((s) => box(g, w / 2 - 12, 10, 34, (s * w) / 4, 52, -d / 2 + 30, '#ffffff')); // pillows
+    box(g, w, 30, d, 0, 0, 0, darken(c, 0.6), FABRIC); // frame
+    box(g, w - 6, 22, d - 8, 0, 30, 4, '#f4f1ea', FABRIC); // mattress
+    box(g, w - 4, 26, d * 0.55, 0, 30, d / 2 - d * 0.275 - 4, c, FABRIC); // duvet
+    box(g, w, h, 8, 0, 0, -d / 2 + 4, darken(c, 0.6), FABRIC); // headboard
+    [-1, 1].forEach((s) => box(g, w / 2 - 12, 10, 34, (s * w) / 4, 52, -d / 2 + 30, '#ffffff', FABRIC)); // pillows
   },
   sofa(g, w, d, h, c) {
     const arm = Math.min(w * 0.14, 16);
-    box(g, w, h * 0.42, d, 0, 0, 0, darken(c, 0.85)); // base
-    box(g, w - arm * 2, h * 0.14, d * 0.72, 0, h * 0.42, d * 0.12, lighten(c, 0.12)); // cushion
-    box(g, w, h * 0.58, d * 0.25, 0, h * 0.42, -d / 2 + d * 0.125, c); // back
-    [-1, 1].forEach((s) => box(g, arm, h * 0.62, d * 0.82, s * (w / 2 - arm / 2), 0, d * 0.09, c)); // arms
+    box(g, w, h * 0.42, d, 0, 0, 0, darken(c, 0.85), FABRIC); // base
+    box(g, w - arm * 2, h * 0.14, d * 0.72, 0, h * 0.42, d * 0.12, lighten(c, 0.12), FABRIC); // cushion
+    box(g, w, h * 0.58, d * 0.25, 0, h * 0.42, -d / 2 + d * 0.125, c, FABRIC); // back
+    [-1, 1].forEach((s) => box(g, arm, h * 0.62, d * 0.82, s * (w / 2 - arm / 2), 0, d * 0.09, c, FABRIC)); // arms
   },
   table(g, w, d, h, c) {
-    box(g, w, TOP_T, d, 0, h - TOP_T, 0, c);
+    box(g, w, TOP_T, d, 0, h - TOP_T, 0, c, WOOD);
     const lx = w / 2 - 6, lz = d / 2 - 6, leg = Math.max(3, Math.min(6, w / 14));
-    CORNERS.forEach(([sx, sz]) => box(g, leg, h - TOP_T, leg, sx * lx, 0, sz * lz, darken(c, 0.8)));
+    CORNERS.forEach(([sx, sz]) => box(g, leg, h - TOP_T, leg, sx * lx, 0, sz * lz, darken(c, 0.8), WOOD));
   },
   chair(g, w, d, h, c) {
-    box(g, w, 4, d, 0, seatTop(h) - 4, 0, c); // seat
-    CORNERS.forEach(([sx, sz]) => box(g, 3, h * 0.5, 3, sx * (w / 2 - 3), 0, sz * (d / 2 - 3), darken(c, 0.7)));
-    box(g, w, h * 0.5, BACK_T, 0, h * 0.5, -d / 2 + BACK_T / 2, c); // back
+    box(g, w, 4, d, 0, seatTop(h) - 4, 0, c, FABRIC); // seat
+    CORNERS.forEach(([sx, sz]) => box(g, 3, h * 0.5, 3, sx * (w / 2 - 3), 0, sz * (d / 2 - 3), darken(c, 0.7), WOOD));
+    box(g, w, h * 0.5, BACK_T, 0, h * 0.5, -d / 2 + BACK_T / 2, c, FABRIC); // back
   },
   desk(g, w, d, h, c) {
-    box(g, w, TOP_T, d, 0, h - TOP_T, 0, c);
-    [-1, 1].forEach((s) => box(g, 4, h - TOP_T, d - 4, s * (w / 2 - 2), 0, 0, darken(c, 0.88)));
-    box(g, w - 8, h * 0.5, 2, 0, h * 0.45, -d / 2 + 3, darken(c, 0.88)); // modesty panel
+    box(g, w, TOP_T, d, 0, h - TOP_T, 0, c, WOOD);
+    [-1, 1].forEach((s) => box(g, 4, h - TOP_T, d - 4, s * (w / 2 - 2), 0, 0, darken(c, 0.88), WOOD));
+    box(g, w - 8, h * 0.5, 2, 0, h * 0.45, -d / 2 + 3, darken(c, 0.88), WOOD); // modesty panel
   },
   wardrobe(g, w, d, h, c) {
-    box(g, w, h, d, 0, 0, 0, c);
+    box(g, w, h, d, 0, 0, 0, c, WOOD);
     [-1, 1].forEach((s) => {
-      box(g, w / 2 - 3, h - 10, 1.5, (s * w) / 4, 5, d / 2 + 0.5, darken(c, 0.93)); // door
+      box(g, w / 2 - 3, h - 10, 1.5, (s * w) / 4, 5, d / 2 + 0.5, darken(c, 0.93), WOOD); // door
       box(g, 2, 28, 2.5, s * 4, h * 0.45, d / 2 + 1.5, '#555'); // handle
     });
   },
   shelf(g, w, d, h, c) {
-    [-1, 1].forEach((s) => box(g, 3, h, d, s * (w / 2 - 1.5), 0, 0, c)); // sides
-    box(g, w, h, 2, 0, 0, -d / 2 + 1, darken(c, 0.85)); // back
+    [-1, 1].forEach((s) => box(g, 3, h, d, s * (w / 2 - 1.5), 0, 0, c, WOOD)); // sides
+    box(g, w, h, 2, 0, 0, -d / 2 + 1, darken(c, 0.85), WOOD); // back
     const shelves = 5;
     const bookColors = ['#c0504d', '#4f81bd', '#9bbb59', '#8064a2', '#f79646'];
     for (let i = 0; i < shelves; i++) {
       const y = (i * (h - 3)) / (shelves - 1);
-      box(g, w - 6, 3, d - 2, 0, y, 1, c);
+      box(g, w - 6, 3, d - 2, 0, y, 1, c, WOOD);
       if (i < shelves - 1 && w > 40) {
         let x = -w / 2 + 7;
         for (let b = 0; b < 6 && x < w / 2 - 12; b++) {
@@ -122,8 +132,8 @@ export const BUILD = {
     }
   },
   tvunit(g, w, d, h, c) {
-    box(g, w, h, d, 0, 0, 0, c);
-    [-1, 1].forEach((s) => box(g, w / 2 - 3, h - 8, 1, (s * w) / 4, 4, d / 2 + 0.5, darken(c, 0.85)));
+    box(g, w, h, d, 0, 0, 0, c, WOOD);
+    [-1, 1].forEach((s) => box(g, w / 2 - 3, h - 8, 1, (s * w) / 4, 4, d / 2 + 0.5, darken(c, 0.85), WOOD));
   },
   tv(g, w, d, h, c) {
     box(g, w * 0.3, 2, d, 0, 0, 0, '#222'); // foot
@@ -132,8 +142,8 @@ export const BUILD = {
     box(g, w - 3, h * 0.84 - 3, 1, 0, h * 0.16 + 1.5, 2.2, '#0b1d33', { emissive: '#10304f', emissiveIntensity: 0.5 });
   },
   rug(g, w, d, h, c) {
-    box(g, w, h, d, 0, 0, 0, c);
-    box(g, w - 16, h + 0.4, d - 16, 0, 0, 0, lighten(c, 0.25));
+    box(g, w, h, d, 0, 0, 0, c, FABRIC);
+    box(g, w - 16, h + 0.4, d - 16, 0, 0, 0, lighten(c, 0.25), FABRIC);
   },
   lamp(g, w, d, h, c) {
     cyl(g, w * 0.3, w * 0.3, 2, 0, 0, 0, '#333'); // base
@@ -159,9 +169,9 @@ export const BUILD = {
     });
   },
   door(g, w, d, h, c) {
-    box(g, w, h, d, 0, 0, 0, c);
+    box(g, w, h, d, 0, 0, 0, c, WOOD);
     box(g, 3, 3, 5, w / 2 - 8, h * 0.48, d / 2 + 1, '#cfcfcf'); // handle
-    box(g, w - 14, h - 18, 1, 0, 9, d / 2 + 0.2, darken(c, 0.9)); // panel
+    box(g, w - 14, h - 18, 1, 0, 9, d / 2 + 0.2, darken(c, 0.9), WOOD); // panel
   },
   window(g, w, d, h, c) {
     const frame = '#ffffff';

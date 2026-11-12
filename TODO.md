@@ -4,8 +4,7 @@ Known issues and open items.
 Finished items move to [TODO_ARCHIVE.md](TODO_ARCHIVE.md).
 
 ## Roadmap (from the original handoff)
-1. Realistic render style. Done: soft shadows, environment light (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO), window light (one `RectAreaLight` per window).
-   - [ ] Textures: wood (tables, desk, wardrobe, shelves, doors, parquet floor option), fabric (sofa, armchair, bed, chair seats), tile/stone floor. Canvas-drawn (no files) or small CC0 photo sets in `public/textures/`; tint by the item colour so picks still apply.
+1. Realistic render style. Done: soft shadows, environment light (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO), canvas-drawn textures (wood, fabric, parquet/tile floors), window light (one `RectAreaLight` per window).
    - [ ] Real sun patches through windows: need wall holes (item 4) and a light that casts shadows.
 2. [ ] Import real furniture meshes (GLB/glTF first; OBJ/FBX later): file picker, scale to cm, then behave like any item (drag/rotate/overlap/save). Keep models < ~5 MB. Saved layouts reference files in `public/models/` so they reload.
 3. [ ] Enter real apartment dimensions and furniture.
@@ -31,6 +30,14 @@ Everything else from the port has been clicked through on desktop.
 - [ ] Ambient occlusion: the semi-transparent window glass picks up a little AO along its edges (cosmetic).
 - [ ] Colour picker: Ctrl+Z / Ctrl+Y while it is open changes the colour underneath but the open picker keeps showing the old one until it is closed.
 - [ ] Saved layouts are per site (localStorage). Layouts from the claude.ai artifact must be moved over by hand: Export → Copy there, Import here.
+
+## Textures
+- [ ] Albedo maps only: no normal/bump or roughness maps, so grout, plank joints and weave are flat colour (they read fine at room scale; a cheap bump map from the same canvases is the next step if close-ups need it).
+- [ ] Two identical pieces show identical grain (UVs are in each piece's own frame); likewise all chairs. A per-item offset would vary it but needs a stable seed (the item id).
+- [ ] The tile floor's mottling is drawn at 1/4 resolution and can look slightly patchy from far away.
+- [ ] First use of each texture kind costs a one-off main-thread draw (desktop: wood ~50 ms, fabric ~40 ms, tile ~50 ms; parquet reuses the wood canvas, ~1 ms). Not measured on a phone.
+- [ ] Cylinders and spheres (lamps, plant, pot) and the plain-coloured parts (handles, books, window frame, TV) stay untextured.
+- [ ] Textured parts render a few % darker than the same colour untextured (the map averages ~0.9–0.97, not 1).
 
 ## Room drawing (steps 1 + 2 done: rooms of any shape, connected by shared walls)
 - [ ] No openings between rooms: a shared wall is solid, so Eye level can't look from one room into the next (roadmap #4, real door holes).
