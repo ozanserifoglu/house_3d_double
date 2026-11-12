@@ -5,8 +5,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { CATALOG, BUILD, TOP_T, BACK_T, seatTop } from './catalog.js';
-import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap, pointInFootprint, backStrip } from './layout-math.js';
+import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap, pointInFootprint, backStrip, frontFacesRoom } from './layout-math.js';
 import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon, polygonsOverlap } from './polygon.js';
 import { pruneLocks, parseLocks, relocateLocks } from './locks.js';
 import { createPlan } from './plan.js';
@@ -100,6 +101,10 @@ sun.shadow.radius = 8; // texels of blur at the edges
 sun.shadow.camera.near = 10;
 sun.shadow.camera.far = 2500;
 scene.add(sun, sun.target);
+
+// Window lights (RectAreaLight, one per window, built in catalog.js) need
+// these lookup tables once before the first render.
+RectAreaLightUniformsLib.init();
 
 // Ambient occlusion: soft darkening where surfaces meet (furniture on the
 // floor, room corners). 3D view only; Plan view renders directly. The
@@ -309,6 +314,13 @@ function rebuildItem(it) {
 function applyTransform(it) {
   it.obj.position.set(it.x, it.y || 0, it.z);
   it.obj.rotation.y = it.rot * DEG;
+  // A window's light shines from whichever face of the plate faces the room.
+  const wl = it.obj.children.find((o) => o.userData.windowLight);
+  if (wl) {
+    const front = frontFacesRoom(it, rooms);
+    wl.rotation.y = front ? Math.PI : 0;
+    wl.position.z = (front ? 1 : -1) * (it.d / 2 + 0.5);
+  }
 }
 
 function addItem(type, props) {
@@ -403,15 +415,17 @@ function refreshOutlines() {
 }
 
 // ---------- Lighting presets ----------
-// env = environment (bounced light) strength, exposure = tone-mapping exposure.
+// env = environment (bounced light) strength, exposure = tone-mapping exposure,
+// win/winCol = window light (RectAreaLight, nits) and its colour.
 const LIGHTING = {
-  day: { bg: '#dbe6f0', hemi: 0.15, hemiSky: '#ffffff', hemiGnd: '#b8a98f', sun: 2.6, sunCol: '#fff3dc', lamp: 0, env: 0.3, exposure: 0.75 },
-  evening: { bg: '#2c2740', hemi: 0.2, hemiSky: '#ffcfa0', hemiGnd: '#4a3a46', sun: 1.2, sunCol: '#ff9f5a', lamp: 260, env: 0.12, exposure: 0.8 },
-  night: { bg: '#0c0f1d', hemi: 0.1, hemiSky: '#6f86ff', hemiGnd: '#1a1a28', sun: 0.15, sunCol: '#7f94ff', lamp: 320, env: 0.03, exposure: 0.9 },
+  day: { bg: '#dbe6f0', hemi: 0.15, hemiSky: '#ffffff', hemiGnd: '#b8a98f', sun: 2.6, sunCol: '#fff3dc', lamp: 0, env: 0.3, exposure: 0.75, win: 2.5, winCol: '#e4eeff' },
+  evening: { bg: '#2c2740', hemi: 0.2, hemiSky: '#ffcfa0', hemiGnd: '#4a3a46', sun: 1.2, sunCol: '#ff9f5a', lamp: 260, env: 0.12, exposure: 0.8, win: 0.8, winCol: '#ffc9a0' },
+  night: { bg: '#0c0f1d', hemi: 0.1, hemiSky: '#6f86ff', hemiGnd: '#1a1a28', sun: 0.15, sunCol: '#7f94ff', lamp: 320, env: 0.03, exposure: 0.9, win: 0, winCol: '#7f94ff' },
 };
+const GLASS_GLOW = 0.15; // window glass emissive per unit of window light
 
 // Also called after (re)building items or rooms: new materials need their
-// environment strength, new lamps their intensity.
+// environment strength, new lamps/windows their intensity.
 function applyLighting() {
   const p = LIGHTING[settings.light];
   scene.background = new THREE.Color(p.bg);
@@ -423,6 +437,14 @@ function applyLighting() {
   sun.color.set(p.sunCol);
   scene.traverse((o) => {
     if (o.userData.lampLight) o.intensity = p.lamp;
+    if (o.userData.windowLight) {
+      o.intensity = p.win;
+      o.color.set(p.winCol);
+    }
+    if (o.userData.windowGlass) {
+      o.material.emissive.set(p.winCol);
+      o.material.emissiveIntensity = p.win * GLASS_GLOW;
+    }
     if (o.material && o.material.isMeshStandardMaterial) o.material.envMapIntensity = p.env;
   });
 }

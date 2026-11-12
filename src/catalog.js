@@ -170,7 +170,17 @@ export const BUILD = {
     box(g, 5, h - 10, d, -w / 2 + 2.5, 5, 0, frame);
     box(g, 5, h - 10, d, w / 2 - 2.5, 5, 0, frame);
     box(g, 3, h - 10, d * 0.6, 0, 5, 0, frame); // mullion
-    box(g, w - 10, h - 10, 2, 0, 5, 0, c, { transparent: true, opacity: 0.45, roughness: 0.1 }); // glass
+    const glass = box(g, w - 10, h - 10, 2, 0, 5, 0, c, { transparent: true, opacity: 0.45, roughness: 0.1 });
+    glass.userData.windowGlass = true; // glows with the window light (applyLighting)
+    // Daylight coming in: a w×h panel just in front of the plate. A
+    // RectAreaLight shines along its local -z, so it is turned to face +z
+    // (into the room); applyTransform flips it to the back if the window's
+    // back faces the room. Intensity/colour come from the preset (applyLighting).
+    const light = new THREE.RectAreaLight(0xffffff, 0, w, h);
+    light.position.set(0, h / 2, d / 2 + 0.5);
+    light.rotation.y = Math.PI;
+    light.userData.windowLight = true;
+    g.add(light);
   },
   box(g, w, d, h, c) {
     box(g, w, h, d, 0, 0, 0, c);
