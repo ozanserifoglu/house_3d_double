@@ -1,20 +1,14 @@
 # TODO
 
 Known issues and open items. Roadmap features live in [CLAUDE.md](CLAUDE.md#roadmap-from-the-original-handoff).
+Finished items move to [TODO_ARCHIVE.md](TODO_ARCHIVE.md).
 
 ## Untested since the port to readable source
-These were converted one-to-one from the minified build but not clicked through yet:
-- [ ] Duplicate and Delete buttons
-- [ ] Layout slots A/B/C (save + load)
-- [ ] Export / Import / Copy layout text
-- [x] ~~Floor and wall colour pickers, item colour picker~~ Replaced by the in-page picker (`color-picker.js`) and clicked through on desktop.
-- [ ] Eye level camera preset
-- [ ] Room W/D/ceiling inputs (pieces re-clamp into the smaller room)
-- [ ] Width/depth/height/lift inputs on an item
+Everything else from the port has been clicked through on desktop.
+- [ ] Copy button: the clipboard write itself (the in-app test browser denies clipboard access, so only the select-the-text fallback was seen)
 - [ ] Touch: pinch zoom and drag on a phone; dragging in the colour picker's square and hue bar
 
 ## Bugs / UX
-- [x] ~~Backspace deletes the selected piece with no undo.~~ Undo/redo added (Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y, and buttons top-right), so an accidental delete can be undone. Backspace still deletes.
 - [ ] Undo history is in memory only: a page reload starts a fresh history (the layout itself is still autosaved).
 - [ ] `R` rotates even with Ctrl held, so Ctrl+R both rotates the piece and reloads the page (pre-existing).
 - [ ] New pieces from the catalog always appear in the same 5 staggered spots (`items.length % 5`). They can land on top of existing furniture.
@@ -22,7 +16,6 @@ These were converted one-to-one from the minified build but not clicked through 
 - [ ] Saved layouts are per site (localStorage). Layouts from the claude.ai artifact must be moved over by hand: Export → Copy there, Import here.
 
 ## Room drawing (steps 1 + 2 done: rooms of any shape, connected by shared walls)
-- [x] ~~Step 2: multiple rooms, connected wall to wall.~~ Done: room list (add/select/rename/delete), gap snapping, one shared wall per facing stretch, no overlaps.
 - [ ] No openings between rooms: a shared wall is solid, so Eye level can't look from one room into the next (roadmap #4, real door holes).
 - [ ] A shared wall takes the owning (lower-id) room's wall colour and ceiling height, on both of its faces.
 - [ ] Where a shared wall (e.g. 10 cm) meets a 12 cm outer wall, the 2 cm step overlaps the neighbour's corner wall; coincident faces there can flicker slightly (cosmetic).
