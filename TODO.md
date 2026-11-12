@@ -17,11 +17,15 @@ Finished items move to [TODO_ARCHIVE.md](TODO_ARCHIVE.md).
 Everything else from the port has been clicked through on desktop.
 - [ ] Copy button: the clipboard write itself (the in-app test browser denies clipboard access, so only the select-the-text fallback was seen)
 - [ ] Touch: pinch zoom and drag on a phone; dragging in the colour picker's square and hue bar
+- [ ] Phone performance with ambient occlusion on (it roughly doubles the 3D work per frame; it defaults to off on touch screens)
 
 ## Bugs / UX
 - [ ] Undo history is in memory only: a page reload starts a fresh history (the layout itself is still autosaved).
 - [ ] `R` rotates even with Ctrl held, so Ctrl+R both rotates the piece and reloads the page (pre-existing).
 - [ ] New pieces from the catalog always appear in the same 5 staggered spots (`items.length % 5`). They can land on top of existing furniture.
+- [ ] Stacking only re-settles when a piece is dragged, added or duplicated (`settleOnTop`). Deleting a table, changing its height, rotating it or typing a new size leaves a lamp/plant on it floating or sunk in; rotating a table also doesn't swing what's on it around with it. Typing "Lifted cm" on an `onTop` piece is undone by its next drag.
+- [ ] Lamp point lights cast no shadows (only the sun does).
+- [ ] Ambient occlusion: the semi-transparent window glass picks up a little AO along its edges (cosmetic).
 - [ ] Colour picker: Ctrl+Z / Ctrl+Y while it is open changes the colour underneath but the open picker keeps showing the old one until it is closed.
 - [ ] Saved layouts are per site (localStorage). Layouts from the claude.ai artifact must be moved over by hand: Export → Copy there, Import here.
 

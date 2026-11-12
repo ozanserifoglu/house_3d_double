@@ -14,6 +14,14 @@ and preview new furniture. Simple > fancy.
   created before the first change. Don't build features directly on `master`.
 - Remote: `origin` = github.com/ozanserifoglu/house_3d_double (SSH).
   Commit/push only when asked.
+- PRs are merged with a merge commit (`gh pr merge --merge`). After a merge,
+  switch the main folder back to an up-to-date `master` and delete the merged
+  branch locally and on `origin`.
+- Worktrees (`.claude/worktrees/<name>`): their `node_modules` is a junction
+  to the main one. Stop that worktree's dev server first, then
+  `git worktree remove` and `cmd /c rmdir` what's left. Never
+  `Remove-Item -Recurse` there: Windows PowerShell 5.1 follows the junction
+  and deletes the real `node_modules`.
 
 ## Architecture
 - `CATALOG[type]` = defaults `{label,w,d,h,color,y?,noCol?,opening?,top?,under?,tuck?,onTop?}`.
