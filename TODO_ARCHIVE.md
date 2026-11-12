@@ -4,6 +4,9 @@ Finished items moved out of [TODO.md](TODO.md), newest first.
 
 ## 2026-11-12
 
+### Roadmap
+- [x] Window light: one `RectAreaLight` per window, the window's size, on its room-facing side; strength/colour per lighting preset (bright by day, a dim warm glow in the evening, off at night); the glass glows with it. No shadows (open items in TODO.md).
+
 ### Untested since the port to readable source
 Clicked through in the app on desktop:
 - [x] Duplicate and Delete buttons: a copy appears 30 cm offset; Delete removes the selected piece.

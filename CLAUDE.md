@@ -90,6 +90,17 @@ and preview new furniture. Simple > fancy.
   material (0.160 has no `scene.environmentIntensity`), so call it after
   creating materials (rebuildItem/buildRooms already do). Furniture `box()`
   parts are `RoundedBoxGeometry` (≤1.5 cm radius; parts < 2 cm stay sharp).
+- Window light: `BUILD.window` adds a w×h `RectAreaLight`
+  (`userData.windowLight`) 0.5 cm in front of the plate at h/2 (so lift `y`
+  counts) and tags the glass `userData.windowGlass`. Being a child of the
+  item group, it follows drag/rotate/rebuild/delete/undo like lamp lights.
+  It shines along its local -z, so it's turned π to face +z; `applyTransform`
+  flips it to the back face when `frontFacesRoom` (layout-math.js: the
+  nearest roughly-parallel wall) says the window's back faces the room.
+  `LIGHTING[preset].win`/`winCol` set intensity (nits; scale-free, so cm
+  don't matter) and colour; glass emissive = `win × GLASS_GLOW`.
+  `RectAreaLightUniformsLib.init()` runs once in main.js. Only standard/
+  physical materials react; no shadows, so it also passes through walls.
 - Ambient occlusion: the 3D view renders through `composer` (RenderPass →
   `GTAOPass` → OutputPass, 4× MSAA HalfFloat target); Plan view and AO-off
   use plain `renderer.render`. GTAO lengths are cm (`thickness` must be tens
