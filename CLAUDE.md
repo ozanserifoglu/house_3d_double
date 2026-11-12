@@ -103,6 +103,17 @@ and preview new furniture. Simple > fancy.
   `applyLighting()` still reaches them. Room floor look = `room.floorTex`
   ('parquet' | 'tile'; missing = plain, the old faint 50 cm grid), Room tab
   "Floor look" (one undo step via the global `change` listener).
+- Window light: `BUILD.window` adds a w×h `RectAreaLight`
+  (`userData.windowLight`) 0.5 cm in front of the plate at h/2 (so lift `y`
+  counts) and tags the glass `userData.windowGlass`. Being a child of the
+  item group, it follows drag/rotate/rebuild/delete/undo like lamp lights.
+  It shines along its local -z, so it's turned π to face +z; `applyTransform`
+  flips it to the back face when `frontFacesRoom` (layout-math.js: the
+  nearest roughly-parallel wall) says the window's back faces the room.
+  `LIGHTING[preset].win`/`winCol` set intensity (nits; scale-free, so cm
+  don't matter) and colour; glass emissive = `win × GLASS_GLOW`.
+  `RectAreaLightUniformsLib.init()` runs once in main.js. Only standard/
+  physical materials react; no shadows, so it also passes through walls.
 - Ambient occlusion: the 3D view renders through `composer` (RenderPass →
   `GTAOPass` → OutputPass, 4× MSAA HalfFloat target); Plan view and AO-off
   use plain `renderer.render`. GTAO lengths are cm (`thickness` must be tens

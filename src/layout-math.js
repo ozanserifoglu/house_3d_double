@@ -165,6 +165,25 @@ export function snapOpeningToWall(it, rooms) {
   it.rot = ((Math.round(rot * 100) / 100) % 360 + 360) % 360;
 }
 
+// Does the opening's front (local +z) face into the room? Judged against the
+// nearest wall roughly parallel to it (within 60°) in the room holding its
+// centre: snapOpeningToWall turns the front inward, a typed/R rotation can
+// turn it away. (Perpendicular walls are skipped: near a corner they can be
+// as close as the wall the opening is on, and say nothing about its facing.)
+export function frontFacesRoom(it, rooms) {
+  const a = it.rot * DEG, fx = Math.sin(a), fz = Math.cos(a); // front direction
+  const room = roomAt(it.x, it.z, rooms);
+  let best = null;
+  for (const r of room ? [room] : rooms) {
+    for (const e of edges(r.pts)) {
+      if (Math.abs(fx * e.nx + fz * e.nz) < 0.5) continue;
+      const c = closestOnSegment([it.x, it.z], e.a, e.b);
+      if (!best || c.d < best.c.d) best = { c, e };
+    }
+  }
+  return !best || fx * best.e.nx + fz * best.e.nz < 0; // front · outward < 0 → inward
+}
+
 // Separating-axis test for two rotated rectangles. Touching (≤0.5 cm) is not overlap.
 export function footprintsOverlap(a, b) {
   const pa = corners(a), pb = corners(b);

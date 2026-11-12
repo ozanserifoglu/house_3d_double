@@ -6,6 +6,7 @@ Finished items moved out of [TODO.md](TODO.md), newest first.
 
 ### Roadmap
 - [x] Textures (roadmap item 1): wood on tables, coffee table, desk, wardrobe, bookshelf, TV unit and doors; fabric on sofa, armchair, bed, chair seats/backs and rug; floor look per room (plain, parquet, tile). Canvas-drawn in code, tinted by the item/floor colour, real-world cm scale (`textures.js`).
+- [x] Window light: one `RectAreaLight` per window, the window's size, on its room-facing side; strength/colour per lighting preset (bright by day, a dim warm glow in the evening, off at night); the glass glows with it. No shadows (open items in TODO.md).
 
 ### Untested since the port to readable source
 Clicked through in the app on desktop:

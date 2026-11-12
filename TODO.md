@@ -4,8 +4,8 @@ Known issues and open items.
 Finished items move to [TODO_ARCHIVE.md](TODO_ARCHIVE.md).
 
 ## Roadmap (from the original handoff)
-1. Realistic render style. Done: soft shadows, environment light (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO), canvas-drawn textures (wood, fabric, parquet/tile floors).
-   - [ ] Window light: a `RectAreaLight` per window is the cheap version (no shadows). Real sun patches through windows need wall holes (item 4).
+1. Realistic render style. Done: soft shadows, environment light (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO), canvas-drawn textures (wood, fabric, parquet/tile floors), window light (one `RectAreaLight` per window).
+   - [ ] Real sun patches through windows: need wall holes (item 4) and a light that casts shadows.
 2. [ ] Import real furniture meshes (GLB/glTF first; OBJ/FBX later): file picker, scale to cm, then behave like any item (drag/rotate/overlap/save). Keep models < ~5 MB. Saved layouts reference files in `public/models/` so they reload.
 3. [ ] Enter real apartment dimensions and furniture.
 4. Maybe (non-rectangular and multi-room rooms are done):
@@ -24,6 +24,9 @@ Everything else from the port has been clicked through on desktop.
 - [ ] New pieces from the catalog always appear in the same 5 staggered spots (`items.length % 5`). They can land on top of existing furniture.
 - [ ] Stacking only re-settles when a piece is dragged, added or duplicated (`settleOnTop`). Deleting a table, changing its height, rotating it or typing a new size leaves a lamp/plant on it floating or sunk in; rotating a table also doesn't swing what's on it around with it. Typing "Lifted cm" on an `onTop` piece is undone by its next drag.
 - [ ] Lamp point lights cast no shadows (only the sun does).
+- [ ] Window lights (`RectAreaLight`) cast no shadows: furniture doesn't block them and they pass through walls, so a window faintly lights the neighbouring room on its side of the wall plane (e.g. across a shared wall).
+- [ ] Window light colour is fixed per preset; it ignores the glass colour. Day/evening only (night = 0).
+- [ ] Turning a door/window with R or the angle field doesn't re-snap it: `clampToRooms` pushes the turned plate off the wall (a 180° turn left one 56 cm out). Its light still shines into the room (`frontFacesRoom`); dragging re-snaps it (pre-existing).
 - [ ] Ambient occlusion: the semi-transparent window glass picks up a little AO along its edges (cosmetic).
 - [ ] Colour picker: Ctrl+Z / Ctrl+Y while it is open changes the colour underneath but the open picker keeps showing the old one until it is closed.
 - [ ] Saved layouts are per site (localStorage). Layouts from the claude.ai artifact must be moved over by hand: Export → Copy there, Import here.
@@ -57,7 +60,8 @@ Everything else from the port has been clicked through on desktop.
 - [ ] The plan overlay rebuilds its whole SVG via `innerHTML` whenever the view or outline changes.
 - [ ] Every item edit (size, colour) rebuilds the whole piece's geometry and materials (`rebuildItem`).
 - [ ] Outlines are disposed and recreated on every pointer move while dragging (`refreshOutlines`).
-- [ ] `applyLighting()` runs on every `rebuildItem` call and walks all items to find lamp lights.
+- [ ] `applyLighting()` runs on every `rebuildItem` call and walks all items to find lamp/window lights.
+- [ ] Adding or removing a window (or lamp) changes the light count, which recompiles every material's shader (a short hitch on slow GPUs).
 - [ ] Undo/redo restores via `loadLayout`, which rebuilds every item and the room. Instant at this size; switch to per-item diffs if layouts get large or GLB models are slow to rebuild.
 - [ ] `main.js` keeps growing with shared state at the top level (now including rooms and room selection). Move rooms and selection into their own module before the GLB-import work.
 
