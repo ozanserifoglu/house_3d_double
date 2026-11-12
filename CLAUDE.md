@@ -33,11 +33,12 @@ and preview new furniture. Simple > fancy.
   flagged if its seat (`seatTop(h)`) clears the underside and its backrest
   (rear `BACK_T` cm, `backStrip`) stays outside. No saved-format change.
 - `BUILD[type](group,w,d,h,color)` builds primitives; origin at floor
-  centre, front faces +z. `coffee` aliases `table`, `armchair` aliases `sofa`.
-  A missing builder logs `missing builder` at load (that once caused a black screen).
+  centre, front faces +z. Each part's surface is picked in its builder
+  (`box(..., WOOD | FABRIC)`, see Textures), so it isn't saved. `coffee`
+  aliases `table`, `armchair` aliases `sofa`. A missing builder logs `missing builder` at load (that once caused a black screen).
 - Item: `{id,type,w,d,h,y(lift),x,z,rot(deg),color,obj}`.
   `rot` → `group.rotation.y = rot·π/180`; `layout-math.js` corners use the same mapping.
-- Room: `{id,name,pts:[[x,z],...],h,floor,wall,locked}` in `rooms[]`. `pts` = the
+- Room: `{id,name,pts:[[x,z],...],h,floor,floorTex?,wall,locked}` in `rooms[]`. `pts` = the
   **inside** outline (tape-measured), positive shoelace area, so edge a→b's
   outward normal is `(uz,-ux)` (`polygon.js`). Walls (`WALL_T` = 12) are
   extruded outward with mitred corners. `currentRoom()` = the selected room
@@ -90,6 +91,18 @@ and preview new furniture. Simple > fancy.
   material (0.160 has no `scene.environmentIntensity`), so call it after
   creating materials (rebuildItem/buildRooms already do). Furniture `box()`
   parts are `RoundedBoxGeometry` (≤1.5 cm radius; parts < 2 cm stay sharp).
+- Textures (`textures.js`): canvas-drawn in code, no files. Kinds `wood`,
+  `fabric` (furniture) and `plain`/`parquet`/`tile` (floors), each drawn once
+  on first use and shared (`userData.shared`: never dispose them; materials
+  stay per mesh). Albedo = near-white grey detail × `material.color`, so
+  colour picks still apply. Scale is real cm: UVs are cm and each texture's
+  `repeat` = 1 / the cm it spans. Floors: ShapeGeometry UVs are already cm.
+  Furniture: `box()` with `opts.tex` calls `boxUVsCm` (box projection in the
+  piece's frame, u along each face's longer side = grain direction).
+  `surface(kind)` → `{map, roughness}` for a MeshStandardMaterial, so
+  `applyLighting()` still reaches them. Room floor look = `room.floorTex`
+  ('parquet' | 'tile'; missing = plain, the old faint 50 cm grid), Room tab
+  "Floor look" (one undo step via the global `change` listener).
 - Ambient occlusion: the 3D view renders through `composer` (RenderPass →
   `GTAOPass` → OutputPass, 4× MSAA HalfFloat target); Plan view and AO-off
   use plain `renderer.render`. GTAO lengths are cm (`thickness` must be tens
@@ -108,7 +121,8 @@ and preview new furniture. Simple > fancy.
   `rp3d_recent_colors` (in-memory fallback). Layout JSON v2 =
   `{version:2, settings:{light,snap,innerWallT}, rooms:[...], items:[...without obj]}`.
   `rooms[].locked` and `rooms[].roomLock` are optional (older saves load
-  unlocked).
+  unlocked); so is `rooms[].floorTex` (missing or unknown = plain; plain is
+  saved as no field).
   v1 `{room:{w,d,h,floor,wall,light,snap}, items}` still loads (→ rectangle).
 
 ## Constraints so far

@@ -4,6 +4,9 @@ Finished items moved out of [TODO.md](TODO.md), newest first.
 
 ## 2026-11-12
 
+### Roadmap
+- [x] Textures (roadmap item 1): wood on tables, coffee table, desk, wardrobe, bookshelf, TV unit and doors; fabric on sofa, armchair, bed, chair seats/backs and rug; floor look per room (plain, parquet, tile). Canvas-drawn in code, tinted by the item/floor colour, real-world cm scale (`textures.js`).
+
 ### Untested since the port to readable source
 Clicked through in the app on desktop:
 - [x] Duplicate and Delete buttons: a copy appears 30 cm offset; Delete removes the selected piece.
