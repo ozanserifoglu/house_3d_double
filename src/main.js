@@ -8,12 +8,13 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { CATALOG, BUILD, TOP_T, BACK_T, seatTop } from './catalog.js';
 import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap, pointInFootprint, backStrip, frontFacesRoom } from './layout-math.js';
-import { offsetPolygon, bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, normalizePolygon, polygonsOverlap } from './polygon.js';
-import { pruneLocks, parseLocks, relocateLocks } from './locks.js';
+import { bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon } from './polygon.js';
+import { pruneLocks, relocateLocks } from './locks.js';
 import { createPlan } from './plan.js';
-import { wallPieces } from './walls.js';
 import { attachColorPickers } from './color-picker.js';
-import { surface, setTextureAnisotropy, FLOOR_KINDS } from './textures.js';
+import { setTextureAnisotropy } from './textures.js';
+import { WALL_T, rooms, setRooms, newRoom, nextRoomName, selectRoomId, currentRoom, overlapsOthers, roomData, parseRooms } from './rooms.js';
+import { buildRoomMeshes, updateWallVisibility } from './room-mesh.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -43,27 +44,12 @@ attachColorPickers(store);
 // View/drawing preferences, not part of undo history. innerWallT = the gap
 // left between rooms when snapping one to another (the wall between them).
 const settings = { light: 'day', snap: 5, innerWallT: 10 };
-// Room: { id, name, pts: [[x, z], ...] inside outline (see polygon.js), h, floor, wall,
-//   floorTex? ('parquet' | 'tile'; missing = plain) }
-let rooms = [];
-let nextRoomId = 1;
-const WALL_T = 12; // outer wall thickness; walls sit outside the outline
-const newRoom = (props) => ({ id: nextRoomId++, name: 'Room', pts: rectPts(500, 400), h: 260, floor: '#c9b79c', wall: '#f2efe9', locked: [], roomLock: false, ...props });
-function nextRoomName() {
-  let k = rooms.length + 1;
-  while (rooms.some((r) => r.name === `Room ${k}`)) k++;
-  return `Room ${k}`;
-}
-// The room the Room tab edits and Eye level stands in (UI state, not saved).
-let selectedRoomId = null;
-const currentRoom = () => rooms.find((r) => r.id === selectedRoomId) || rooms[0];
+// Rooms and the selected room live in rooms.js.
 function selectRoom(id) {
-  selectedRoomId = id;
+  selectRoomId(id);
   syncRoomInputs();
   plan.refresh();
 }
-// Would this outline overlap any room other than `exceptId`?
-const overlapsOthers = (pts, exceptId) => rooms.some((r) => r.id !== exceptId && polygonsOverlap(pts, r.pts));
 // Item: { id, type, w, d, h, y (lift), x, z, rot (deg), color, obj }
 let items = [];
 let selected = null;
@@ -129,7 +115,7 @@ let aoOn = aoSaved !== null ? aoSaved === '1' : !matchMedia('(pointer: coarse)')
 
 const roomGroup = new THREE.Group();
 scene.add(roomGroup);
-let walls = []; // { m: Mesh, a: [x, z], nx, nz } — a point on the wall's inside face, and its outward normal
+let walls = []; // from buildRoomMeshes (room-mesh.js), for wall auto-hide
 
 // ---------- Pointer: drag furniture on the floor ----------
 // Registered (capture phase) before OrbitControls so it can disable
@@ -277,7 +263,7 @@ const plan = createPlan({
       const from = currentRoom();
       const room = newRoom({ pts, name: nextRoomName(), h: from.h, floor: from.floor, floorTex: from.floorTex, wall: from.wall });
       rooms.push(room);
-      selectedRoomId = room.id;
+      selectRoomId(room.id);
     }
     onRoomsChanged();
     checkpoint();
@@ -453,58 +439,9 @@ function applyLighting() {
 }
 
 // ---------- Room ----------
-// Floor-plane polygon [[x, z], ...] → THREE.Shape. Shapes live in the xy
-// plane, so z is stored as -y and the geometry is turned flat afterwards.
-const toShape = (pts) => new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
-
-// Vertical prism over a floor-plane polygon, from y0 up `height` cm.
-function prismGeometry(pts, y0, height) {
-  const g = new THREE.ExtrudeGeometry(toShape(pts), { depth: height, bevelEnabled: false });
-  g.rotateX(-Math.PI / 2);
-  g.translate(0, y0, 0);
-  return g;
-}
-
+// Rebuild the room meshes (room-mesh.js), then refit the sun and the plan.
 function buildRooms() {
-  roomGroup.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
-    if (o.material) {
-      if (o.material.map && !o.material.map.userData.shared) o.material.map.dispose(); // floor maps are shared (textures.js)
-      o.material.dispose();
-    }
-  });
-  roomGroup.clear();
-  walls = [];
-
-  rooms.forEach((r) => {
-    // Floor UVs are the shape's coordinates, i.e. cm, as textures.js expects.
-    const floorGeo = new THREE.ShapeGeometry(toShape(r.pts));
-    floorGeo.rotateX(-Math.PI / 2);
-    const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: r.floor, ...surface(r.floorTex || 'plain') }));
-    floor.receiveShadow = true;
-    roomGroup.add(floor);
-
-    // Skirting boards (6 cm high, 3 cm deep) along every edge; they stay
-    // visible when walls auto-hide.
-    const inner = offsetPolygon(r.pts, -3);
-    const skirtMat = new THREE.MeshStandardMaterial({ color: '#d9d4ca', roughness: 0.9 });
-    const n = r.pts.length;
-    r.pts.forEach((p, i) => {
-      const j = (i + 1) % n;
-      roomGroup.add(new THREE.Mesh(prismGeometry([r.pts[i], r.pts[j], inner[j], inner[i]], 0, 6), skirtMat));
-    });
-  });
-
-  // Walls: outer walls WALL_T thick, one shared wall where rooms face each
-  // other (see walls.js). A shared wall takes its owning room's colour/height.
-  const wallMats = new Map(rooms.map((r) => [r.id, new THREE.MeshStandardMaterial({ color: r.wall, roughness: 0.95 })]));
-  const heights = new Map(rooms.map((r) => [r.id, r.h]));
-  wallPieces(rooms, WALL_T).forEach((p) => {
-    const m = new THREE.Mesh(prismGeometry(p.quad, 0, heights.get(p.roomId)), wallMats.get(p.roomId));
-    m.receiveShadow = true;
-    roomGroup.add(m);
-    walls.push({ m, a: p.a, nx: p.nx, nz: p.nz, shared: p.shared });
-  });
+  walls = buildRoomMeshes(roomGroup, rooms, WALL_T);
 
   // Fit the sun's shadow frustum to the rooms.
   const b = bounds(rooms.map((r) => r.pts));
@@ -858,8 +795,8 @@ $('#b-del-room').addEventListener('click', () => {
   if (!confirm(`Delete ${r.name}${what}? (Undo brings it back.)`)) return;
   inside.forEach(removeItem);
   if (selected && inside.includes(selected)) selected = null;
-  rooms = rooms.filter((q) => q !== r);
-  selectedRoomId = null;
+  setRooms(rooms.filter((q) => q !== r));
+  selectRoomId(null);
   plan.reset();
   onRoomsChanged();
   checkpoint();
@@ -922,27 +859,10 @@ $$('#views [data-view]').forEach((b) => b.addEventListener('click', () => setVie
 // ---------- Save / load ----------
 const itemData = () => items.map(({ id, type, w, d, h, y, x, z, rot, color }) => ({ id, type, w, d, h, y, x, z, rot, color }));
 
-const roomData = () => rooms.map(({ id, name, pts, h, floor, floorTex, wall, locked, roomLock }) => ({ id, name, pts, h, floor, floorTex, wall, locked, roomLock }));
-
 // Layout JSON v2: { version, settings, rooms, items }.
 // v1 had a single rectangle: { room: { w, d, h, floor, wall, light, snap }, items }.
 function serialize() {
   return JSON.stringify({ version: 2, settings, rooms: roomData(), items: itemData() });
-}
-
-// Rooms from either layout version. Outlines with < 3 corners are dropped.
-function parseRooms(parsed) {
-  if (Array.isArray(parsed.rooms)) {
-    const list = parsed.rooms
-      .filter((r) => Array.isArray(r.pts))
-      .map((r) => ({ ...r, pts: normalizePolygon(r.pts.filter((p) => isFinite(p[0]) && isFinite(p[1]))), locked: parseLocks(r.locked), roomLock: r.roomLock === true, floorTex: FLOOR_KINDS.includes(r.floorTex) && r.floorTex !== 'plain' ? r.floorTex : undefined }))
-      .filter((r) => r.pts.length >= 3)
-      .map(({ id, ...r }) => newRoom({ ...r, ...(Number.isInteger(id) ? { id } : {}) }));
-    if (list.length) return list;
-  }
-  const old = parsed.room || {};
-  const pick = (k) => (old[k] !== undefined ? { [k]: old[k] } : {});
-  return [newRoom({ pts: rectPts(old.w || 500, old.d || 400), ...pick('h'), ...pick('floor'), ...pick('wall') })];
 }
 
 function clearItems() {
@@ -962,9 +882,8 @@ function loadLayout(data) {
   if (s.light) settings.light = s.light;
   if (s.snap !== undefined) settings.snap = s.snap;
   if (s.innerWallT > 0) settings.innerWallT = s.innerWallT;
-  rooms = parseRooms(parsed);
+  setRooms(parseRooms(parsed));
   rooms.forEach(pruneLocks);
-  rooms.forEach((r) => (nextRoomId = Math.max(nextRoomId, r.id + 1)));
   plan.reset();
   buildRooms();
   syncRoomInputs();
@@ -1040,7 +959,7 @@ $('#b-copy').addEventListener('click', async () => {
 function loadSample() {
   clearItems();
   const keep = rooms[0] ? { floor: rooms[0].floor, floorTex: rooms[0].floorTex, wall: rooms[0].wall } : {}; // colours (and floor look) survive, as before
-  rooms = [newRoom({ pts: rectPts(500, 400), h: 260, ...keep })];
+  setRooms([newRoom({ pts: rectPts(500, 400), h: 260, ...keep })]);
   plan.reset();
   buildRooms();
   syncRoomInputs();
@@ -1136,15 +1055,9 @@ new ResizeObserver(resize).observe(view);
 
 function animate() {
   activeControls().update();
-  // Hide walls whose outside faces the camera, and all walls from (near) top
-  // view and in Plan view (which draws them as a 2D band instead).
-  const cam = camera.position;
-  const topDown = plan.active || controls.getPolarAngle() < 0.35;
-  walls.forEach((wall) => {
-    // Shared walls are inside the apartment: they only hide from above.
-    const camOutside = !wall.shared && (cam.x - wall.a[0]) * wall.nx + (cam.z - wall.a[1]) * wall.nz > 0;
-    wall.m.visible = !camOutside && !topDown;
-  });
+  // All walls hide from (near) top view and in Plan view (which draws them
+  // as a 2D band instead).
+  updateWallVisibility(walls, camera.position, plan.active || controls.getPolarAngle() < 0.35);
   if (plan.active) plan.update();
   if (aoOn && !plan.active) composer.render();
   else renderer.render(scene, activeCamera());
@@ -1152,7 +1065,7 @@ function animate() {
 }
 
 // ---------- Boot ----------
-rooms = [newRoom()];
+setRooms([newRoom()]);
 buildRooms();
 applyLighting();
 const autosaved = store.get('rp3d_auto');

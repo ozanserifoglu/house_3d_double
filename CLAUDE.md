@@ -45,6 +45,14 @@ and preview new furniture. Simple > fancy.
   (`selectedRoomId`, UI state, not saved). After changing an outline call
   `onRoomsChanged()` (rebuild walls, re-clamp furniture, panel, autosave) +
   `checkpoint()`. Rooms must not overlap (`polygonsOverlap`).
+- Room modules: `rooms.js` owns the room data (no three.js/DOM): `rooms`,
+  `selectedRoomId` (live `export let` bindings: read anywhere, reassign only
+  via `setRooms(list)` / `selectRoomId(id)`; mutating the array in place is
+  fine), `WALL_T`, `newRoom`, `currentRoom`, `overlapsOthers`, `roomData`,
+  `parseRooms`. `room-mesh.js` builds floors/skirting/walls
+  (`buildRoomMeshes(group, rooms, wallT)` → walls) and does wall auto-hide
+  (`updateWallVisibility`). main.js keeps `buildRooms()` (meshes + sun
+  shadow fit + lighting + plan refresh), `selectRoom()` and the Room tab UI.
 - Locked walls (`locks.js`): lock the wall's **length (and angle)**, not its
   place. `room.locked` = each locked wall's [start, end] corners where it
   last was. Edits move corners via `carryLocked` (a locked wall touching a
