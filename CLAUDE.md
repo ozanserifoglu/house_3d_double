@@ -143,4 +143,9 @@ and preview new furniture. Simple > fancy.
 
 ## Roadmap
 Lives in [TODO.md](TODO.md#roadmap-from-the-original-handoff) with the known
-issues: textures, window light, GLB/glTF import, real dimensions, wall holes.
+issues: GLB/glTF import, real dimensions, wall holes (and sun through windows).
+
+## Session handoff
+[HANDOFF.md](HANDOFF.md) says where the last session stopped and what's next.
+Read it at the start of a session. At the end, rewrite it (replace, don't
+append): state, what was done, next steps, loose ends.
