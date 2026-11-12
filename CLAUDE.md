@@ -108,18 +108,6 @@ and preview new furniture. Simple > fancy.
   Rooms join through a shared wall only: no openings between them yet.
 - Doors/windows are plates on walls (no holes).
 
-## Roadmap (from the original handoff)
-1. Realistic render style. Done: soft shadows, environment light
-   (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO).
-   Left: textures (wood, fabric, tile), window light. Textures: canvas-drawn
-   (no files) or small CC0 photo sets in `public/textures/`; tint by the
-   item colour so picks still apply. Window light: a `RectAreaLight` per
-   window is the cheap version (no shadows); real sun patches through
-   windows need wall holes (item 4).
-2. Import real furniture meshes (GLB/glTF first; OBJ/FBX later): file
-   picker, scale to cm, then behave like any item (drag/rotate/overlap/
-   save). Keep models < ~5 MB. Saved layouts reference files in
-   `public/models/` so they reload.
-3. Enter real apartment dimensions and furniture.
-4. Maybe: real wall holes for doors/windows, openings between rooms.
-   (Non-rectangular and multi-room are done.)
+## Roadmap
+Lives in [TODO.md](TODO.md#roadmap-from-the-original-handoff) with the known
+issues: textures, window light, GLB/glTF import, real dimensions, wall holes.

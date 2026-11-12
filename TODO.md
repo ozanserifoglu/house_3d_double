@@ -1,7 +1,17 @@
 # TODO
 
-Known issues and open items. Roadmap features live in [CLAUDE.md](CLAUDE.md#roadmap-from-the-original-handoff).
+Known issues and open items.
 Finished items move to [TODO_ARCHIVE.md](TODO_ARCHIVE.md).
+
+## Roadmap (from the original handoff)
+1. Realistic render style. Done: soft shadows, environment light (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO).
+   - [ ] Textures: wood (tables, desk, wardrobe, shelves, doors, parquet floor option), fabric (sofa, armchair, bed, chair seats), tile/stone floor. Canvas-drawn (no files) or small CC0 photo sets in `public/textures/`; tint by the item colour so picks still apply.
+   - [ ] Window light: a `RectAreaLight` per window is the cheap version (no shadows). Real sun patches through windows need wall holes (item 4).
+2. [ ] Import real furniture meshes (GLB/glTF first; OBJ/FBX later): file picker, scale to cm, then behave like any item (drag/rotate/overlap/save). Keep models < ~5 MB. Saved layouts reference files in `public/models/` so they reload.
+3. [ ] Enter real apartment dimensions and furniture.
+4. Maybe (non-rectangular and multi-room rooms are done):
+   - [ ] Real wall holes for doors/windows.
+   - [ ] Openings between rooms.
 
 ## Untested since the port to readable source
 Everything else from the port has been clicked through on desktop.
