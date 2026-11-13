@@ -7,8 +7,8 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { CATALOG, BUILD, TOP_T, BACK_T, seatTop } from './catalog.js';
-import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap, pointInFootprint, backStrip, frontFacesRoom } from './layout-math.js';
-import { bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon } from './polygon.js';
+import { clampToRooms, snapToWalls, snapOpeningToWall, footprintsOverlap, pointInFootprint, backStrip, frontFacesRoom, corners, doorSwing, DOOR_DEFAULTS } from './layout-math.js';
+import { bounds, rectPts, asRect, signedArea, interiorPoint, pointInPolygon, polygonsOverlap } from './polygon.js';
 import { pruneLocks, relocateLocks } from './locks.js';
 import { createPlan } from './plan.js';
 import { attachColorPickers } from './color-picker.js';
@@ -51,6 +51,7 @@ function selectRoom(id) {
   plan.refresh();
 }
 // Item: { id, type, w, d, h, y (lift), x, z, rot (deg), color, obj }
+// Doors also: { open (deg), hinge, swing } (layout-math.js "Doors").
 let items = [];
 let selected = null;
 let nextId = 1;
@@ -241,8 +242,19 @@ window.addEventListener('pointercancel', () => {
   press = null;
 });
 
+// Double-click: Plan edits the outline; in 3D, a door opens/closes.
 canvas.addEventListener('dblclick', (e) => {
-  if (plan.active) plan.dblClick(e);
+  if (plan.active) {
+    plan.dblClick(e);
+    return;
+  }
+  setRayFromEvent(e);
+  const hits = raycaster.intersectObjects(items.map((it) => it.obj), true);
+  const it = hits.length && items.find((i) => i.id === itemIdFromObject(hits[0].object));
+  if (it && it.type === 'door') {
+    toggleDoor(it);
+    checkpoint();
+  }
 });
 
 const controls = new OrbitControls(camera, canvas);
@@ -260,6 +272,8 @@ const plan = createPlan({
   getRooms: () => rooms,
   getSnap: () => settings.snap,
   getGap: () => settings.innerWallT,
+  // Each door's swing area (doorSwing) and whether furniture stands in it.
+  getDoorSwings: () => items.filter((it) => it.type === 'door').map((it) => ({ ...doorSwing(it), blocked: blockedDoors.has(it.id) })),
   getSelectedRoomId: () => currentRoom().id,
   onSelectRoom: (id) => selectRoom(id),
   onLive: () => buildRooms(), // outline changing mid-drag
@@ -298,7 +312,7 @@ function rebuildItem(it) {
     disposeObject(it.obj);
   }
   const g = new THREE.Group();
-  BUILD[it.type](g, it.w, it.d, it.h, it.color);
+  BUILD[it.type](g, it.w, it.d, it.h, it.color, it);
   g.traverse((o) => {
     if (o.isMesh) {
       // Doors and window frames cast shadows (the sun through a window
@@ -324,6 +338,16 @@ function applyTransform(it) {
     wl.rotation.y = front ? Math.PI : 0;
     wl.position.z = (front ? 1 : -1) * (it.d / 2 + 0.5);
   }
+  // A door's leaf turns on its hinge by the open angle.
+  const leaf = it.obj.children.find((o) => o.userData.doorLeaf);
+  if (leaf) leaf.rotation.y = leaf.userData.openSign * Math.max(0, Math.min(180, it.open || 0)) * DEG;
+}
+
+// Open a closed door to 90°, close an open one.
+function toggleDoor(it) {
+  it.open = it.open > 0 ? 0 : 90;
+  applyTransform(it);
+  commit();
 }
 
 function addItem(type, props) {
@@ -339,6 +363,7 @@ function addItem(type, props) {
     z: 0,
     rot: 0,
     color: def.color,
+    ...(type === 'door' ? DOOR_DEFAULTS : {}),
     ...(props || {}),
   };
   items.push(it);
@@ -377,9 +402,13 @@ function tuckedUnder(c, t) {
 
 // ---------- Overlap detection + outlines ----------
 let overlapping = new Set();
+let blocking = new Set(); // furniture standing in a door's swing
+let blockedDoors = new Set(); // doors with furniture in their swing
 
 function computeOverlaps() {
   overlapping = new Set();
+  blocking = new Set();
+  blockedDoors = new Set();
   const solid = items.filter((it) => !CATALOG[it.type].noCol);
   for (let i = 0; i < solid.length; i++) {
     for (let j = i + 1; j < solid.length; j++) {
@@ -391,6 +420,20 @@ function computeOverlaps() {
       }
     }
   }
+  // Furniture in a door's swing area, at the leaf's height (a piece hung
+  // above the door's top doesn't count). Footprints shrink 0.5 cm a side so
+  // a piece just touching the swing (e.g. flush beside the hinge) passes.
+  for (const door of items.filter((it) => it.type === 'door')) {
+    const { poly } = doorSwing(door), y0 = door.y || 0, y1 = y0 + door.h;
+    for (const it of solid) {
+      if (it.y >= y1 - 1 || it.y + it.h <= y0 + 1) continue;
+      if (polygonsOverlap(poly, corners({ ...it, w: it.w - 1, d: it.d - 1 }))) {
+        blocking.add(it.id);
+        blockedDoors.add(door.id);
+      }
+    }
+  }
+  plan.redraw(); // the swing arcs in Plan follow
 }
 
 let outlines = [];
@@ -413,6 +456,7 @@ function refreshOutlines() {
   };
   items.forEach((it) => {
     if (overlapping.has(it.id)) outline(it, 0xff5a4d);
+    else if (blocking.has(it.id)) outline(it, 0xffa33a);
   });
   if (selected) outline(selected, 0xffd24a);
 }
@@ -567,7 +611,19 @@ function refreshItemPanel() {
   $('#item-form').style.display = has ? 'block' : 'none';
   if (!has) return;
   $('#item-name').textContent = CATALOG[selected.type].label;
-  $('#item-warn').textContent = overlapping.has(selected.id) ? 'overlapping something' : '';
+  const warn = [];
+  if (overlapping.has(selected.id)) warn.push('overlapping something');
+  if (blocking.has(selected.id)) warn.push("in a door's swing");
+  if (blockedDoors.has(selected.id)) warn.push('something is in its swing');
+  $('#item-warn').textContent = warn.join(' · ');
+  const isDoor = selected.type === 'door';
+  $('#door-row').style.display = isDoor ? '' : 'none';
+  if (isDoor) {
+    setIfNotFocused($('#f-open'), Math.round(selected.open || 0));
+    $('#f-hinge').value = selected.hinge === 'right' ? 'right' : 'left';
+    $('#f-swing').value = selected.swing === 'out' ? 'out' : 'in';
+    $('#b-door').textContent = selected.open > 0 ? 'Close' : 'Open';
+  }
   setIfNotFocused($('#f-w'), Math.round(selected.w));
   setIfNotFocused($('#f-d'), Math.round(selected.d));
   setIfNotFocused($('#f-h'), Math.round(selected.h));
@@ -653,6 +709,34 @@ $('#f-color').addEventListener('input', (e) => {
   commit();
 });
 
+// Door: open angle (live), hinge/swing sides (move the hinge axis: rebuild),
+// Open/Close button. Typed/picked values become one undo step via the
+// global 'change' listener; the button records its own.
+$('#f-open').addEventListener('input', (e) => {
+  if (!selected || selected.type !== 'door') return;
+  const v = parseFloat(e.target.value);
+  if (!isFinite(v)) return;
+  selected.open = Math.max(0, Math.min(180, v));
+  applyTransform(selected);
+  commit();
+});
+[
+  ['#f-hinge', 'hinge'],
+  ['#f-swing', 'swing'],
+].forEach(([sel, key]) =>
+  $(sel).addEventListener('change', (e) => {
+    if (!selected || selected.type !== 'door') return;
+    selected[key] = e.target.value;
+    rebuildItem(selected);
+    commit();
+  }),
+);
+$('#b-door').addEventListener('click', () => {
+  if (!selected || selected.type !== 'door') return;
+  toggleDoor(selected);
+  checkpoint();
+});
+
 $$('[data-rot]').forEach((b) =>
   b.addEventListener('click', () => {
     if (selected) rotateSelected(parseFloat(b.dataset.rot));
@@ -662,7 +746,8 @@ $$('[data-rot]').forEach((b) =>
 $('#b-dup').addEventListener('click', () => {
   if (!selected) return;
   const s = selected;
-  const copy = addItem(s.type, { w: s.w, d: s.d, h: s.h, y: s.y, x: s.x + 30, z: s.z + 30, rot: s.rot, color: s.color });
+  const door = s.type === 'door' ? { open: s.open, hinge: s.hinge, swing: s.swing } : {};
+  const copy = addItem(s.type, { w: s.w, d: s.d, h: s.h, y: s.y, x: s.x + 30, z: s.z + 30, rot: s.rot, color: s.color, ...door });
   clampToRooms(copy, rooms);
   settleOnTop(copy);
   applyTransform(copy);
@@ -909,7 +994,8 @@ $('#tabs').addEventListener('click', (e) => {
 $$('#views [data-view]').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
 
 // ---------- Save / load ----------
-const itemData = () => items.map(({ id, type, w, d, h, y, x, z, rot, color }) => ({ id, type, w, d, h, y, x, z, rot, color }));
+// Door fields (open/hinge/swing) are undefined on other items, so JSON leaves them out.
+const itemData = () => items.map(({ id, type, w, d, h, y, x, z, rot, color, open, hinge, swing }) => ({ id, type, w, d, h, y, x, z, rot, color, open, hinge, swing }));
 
 // Layout JSON v2: { version, settings, rooms, items }.
 // v1 had a single rectangle: { room: { w, d, h, floor, wall, light, snap }, items }.

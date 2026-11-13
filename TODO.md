@@ -7,8 +7,7 @@ Finished items move to [TODO_ARCHIVE.md](TODO_ARCHIVE.md).
 1. Realistic render style. Done: soft shadows, environment light (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO), canvas-drawn textures (wood, fabric, parquet/tile floors), window light (one `RectAreaLight` per window).
 2. [ ] Import real furniture meshes (GLB/glTF first; OBJ/FBX later): file picker, scale to cm, then behave like any item (drag/rotate/overlap/save). Keep models < ~5 MB. Saved layouts reference files in `public/models/` so they reload.
 3. [ ] Enter real apartment dimensions and furniture.
-4. Maybe (non-rectangular and multi-room rooms are done):
-   - [ ] Openings between rooms.
+4. Done: non-rectangular and multi-room rooms, openings between rooms (doors open/close; see "Doors").
 
 ## Untested since the port to readable source
 Everything else from the port has been clicked through on desktop.
@@ -49,6 +48,16 @@ Each was tested on its own branch; the combined build only got a build and one d
 - [ ] A hole is exactly the plate's size. An opening that sticks out past a wall's end (into a corner) is clipped to that piece; the neighbouring wall at the corner is not cut.
 - [ ] Not phone-tested: walls are rebuilt on every pointer move while a door/window is dragged (cheap on desktop).
 
+## Doors (open/close)
+- [ ] The swing area ignores walls: a wedge that reaches a side wall (e.g. a hinge near a corner opened past 90°), or an "out" swing on an outer wall, is drawn and checked through the wall. The 3D leaf passes through walls and furniture too; it is only flagged, never stopped.
+- [ ] No leafless "open doorway" type (an arch/passage with just a hole).
+- [ ] Double-click toggles a door in 3D/Top/Eye level only; in Plan, double-click stays "add a corner".
+- [ ] Open/close is instant (no swing animation).
+- [ ] The yellow selection box (and the red/orange outlines) stay around the closed plate, not the open leaf.
+- [ ] "In"/"Out" and "Left"/"Right" are relative to the door's front, so turning a door 180° with R swaps them (and pushes it off the wall: see Bugs).
+- [ ] Windows don't open.
+- [ ] Not clicked through: a door in a shared wall between two rooms (Eye level looking through it), sun through an open door, night/evening presets, phone.
+
 ## Textures
 - [ ] Albedo maps only: no normal/bump or roughness maps, so grout, plank joints and weave are flat colour (they read fine at room scale; a cheap bump map from the same canvases is the next step if close-ups need it).
 - [ ] Two identical pieces show identical grain (UVs are in each piece's own frame); likewise all chairs. A per-item offset would vary it but needs a stable seed (the item id).
@@ -58,7 +67,6 @@ Each was tested on its own branch; the combined build only got a build and one d
 - [ ] Textured parts render a few % darker than the same colour untextured (the map averages ~0.9–0.97, not 1).
 
 ## Room drawing (steps 1 + 2 done: rooms of any shape, connected by shared walls)
-- [ ] No openings between rooms: a door in a shared wall now has a hole, but its leaf (the plate) is solid, so Eye level still can't look from one room into the next (roadmap #4).
 - [ ] A shared wall takes the owning (lower-id) room's wall colour and ceiling height, on both of its faces.
 - [ ] Where a shared wall (e.g. 10 cm) meets a 12 cm outer wall, the 2 cm step overlaps the neighbour's corner wall; coincident faces there can flicker slightly (cosmetic).
 - [ ] Dragging furniture across a shared wall moves it into the other room as soon as its centre crosses (no doorway check).

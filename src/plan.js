@@ -744,6 +744,13 @@ export function createPlan(ctx) {
     labels = [];
     const out = [];
     const badId = drag && drag.moved && !drag.valid ? drag.roomId : null;
+    // Door swings (under the walls): the area the leaf sweeps, orange when
+    // furniture stands in it, and the leaf at its current angle.
+    for (const s of ctx.getDoorSwings()) {
+      const h = toScreen(s.hinge), t = toScreen(s.tip);
+      out.push(`<path class="pds${s.blocked ? ' blk' : ''}" d="${pathOf(s.poly.map(toScreen))}"/>`);
+      out.push(`<line class="pdl" x1="${f1(h[0])}" y1="${f1(h[1])}" x2="${f1(t[0])}" y2="${f1(t[1])}"/>`);
+    }
     // Walls as in 3D: outer walls and one shared wall between facing rooms.
     for (const pc of wallPieces(rooms(), wallT)) {
       out.push(`<path class="pw${pc.shared ? ' sh' : ''}${pc.roomId === badId ? ' bad' : ''}" d="${pathOf(pc.quad.map(toScreen))}"/>`);
@@ -918,6 +925,7 @@ export function createPlan(ctx) {
       dirty = true;
       renderBar();
     },
+    redraw: () => (dirty = true), // overlay only (e.g. furniture or doors moved)
     pointerDown,
     pointerMove,
     pointerUp,

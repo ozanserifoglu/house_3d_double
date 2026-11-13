@@ -1,9 +1,11 @@
 // Furniture catalog (default sizes, cm) and procedural builders.
-// Every builder: BUILD[type](group, w, d, h, color).
+// Every builder: BUILD[type](group, w, d, h, color, item); only the door
+// reads the item (its hinge/swing sides).
 // Origin is at the floor centre of the piece; its front faces +z.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { surface, boxUVsCm } from './textures.js';
+import { doorParts } from './layout-math.js';
 
 // Stacking flags (all optional):
 //   top:   has a flat top at its height that `onTop` pieces can rest on.
@@ -168,10 +170,32 @@ export const BUILD = {
       g.add(m);
     });
   },
-  door(g, w, d, h, c) {
-    box(g, w, h, d, 0, 0, 0, c, WOOD);
-    box(g, 3, 3, 5, w / 2 - 8, h * 0.48, d / 2 + 1, '#cfcfcf'); // handle
-    box(g, w - 14, h - 18, 1, 0, 9, d / 2 + 0.2, darken(c, 0.9), WOOD); // panel
+  // A fixed frame (two jambs + head, the plate's depth) lining the wall hole,
+  // and a leaf in a pivot group on the hinge axis (doorParts). The pivot's
+  // rotation (the open angle) is set by applyTransform, so opening/closing
+  // doesn't rebuild; hinge/swing changes do (they move the axis).
+  door(g, w, d, h, c, it) {
+    const p = doorParts({ w, d, ...it });
+    const frame = darken(c, 0.85);
+    box(g, p.jamb, h, d, -w / 2 + p.jamb / 2, 0, 0, frame, WOOD); // jambs
+    box(g, p.jamb, h, d, w / 2 - p.jamb / 2, 0, 0, frame, WOOD);
+    box(g, w - 2 * p.jamb, p.jamb, d, 0, h - p.jamb, 0, frame, WOOD); // head
+    const pivot = new THREE.Group();
+    pivot.position.set(p.hingeX, 0, p.hingeZ);
+    pivot.userData.doorLeaf = true;
+    pivot.userData.openSign = p.openSign;
+    g.add(pivot);
+    // In the pivot: the leaf runs from the axis along sx, its thickness
+    // behind the face it swings towards (-sz).
+    const lh = Math.max(1, h - p.jamb - 1.3); // 1 cm floor gap, 0.3 cm under the head
+    const cx = p.sx * (0.3 + p.leafW / 2), back = -p.sz * p.leafT;
+    box(pivot, p.leafW, lh, p.leafT, cx, 1, back / 2, c, WOOD);
+    // Raised panel and handle on each face.
+    [0, back].forEach((face) => {
+      const out = face === 0 ? p.sz : -p.sz; // away from the leaf
+      if (p.leafW > 20 && lh > 40) box(pivot, p.leafW - 14, lh - 18, 0.8, cx, 10, face + out * 0.4, darken(c, 0.9), WOOD);
+      box(pivot, 3, 3, 3, p.sx * (0.3 + p.leafW - 7), Math.min(h * 0.48, lh - 5), face + out * 1.5, '#cfcfcf');
+    });
   },
   window(g, w, d, h, c) {
     const frame = '#ffffff';

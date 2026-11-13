@@ -51,6 +51,12 @@
           <button class="btn" data-rot="15">15 ⟳</button>
           <button class="btn" data-rot="90">90 ⟳</button>
         </div>
+        <div class="row" id="door-row" style="display:none">
+          <label class="f" style="max-width:90px">Open °<input id="f-open" type="number" inputmode="numeric" min="0" max="180" step="15"></label>
+          <label class="f" style="max-width:110px" title="Seen from the door's front">Hinge<select id="f-hinge"><option value="left">Left</option><option value="right">Right</option></select></label>
+          <label class="f" style="max-width:140px" title="In = towards the door's front (the room it was snapped into); Out = through the wall">Swings<select id="f-swing"><option value="in">In</option><option value="out">Out</option></select></label>
+          <button class="btn" id="b-door" title="Or double-click the door in 3D">Open</button>
+        </div>
         <div class="row">
           <button class="btn" id="b-dup">Duplicate</button>
           <button class="btn danger" id="b-del">Delete</button>
