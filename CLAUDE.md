@@ -32,11 +32,13 @@ and preview new furniture. Simple > fancy.
   knee room below a `TOP_T` top; a `tuck` piece (chair) overlapping it isn't
   flagged if its seat (`seatTop(h)`) clears the underside and its backrest
   (rear `BACK_T` cm, `backStrip`) stays outside. No saved-format change.
-- `BUILD[type](group,w,d,h,color)` builds primitives; origin at floor
+- `BUILD[type](group,w,d,h,color,item)` builds primitives (only the door
+  reads `item`); origin at floor
   centre, front faces +z. Each part's surface is picked in its builder
   (`box(..., WOOD | FABRIC)`, see Textures), so it isn't saved. `coffee`
   aliases `table`, `armchair` aliases `sofa`. A missing builder logs `missing builder` at load (that once caused a black screen).
-- Item: `{id,type,w,d,h,y(lift),x,z,rot(deg),color,obj}`.
+- Item: `{id,type,w,d,h,y(lift),x,z,rot(deg),color,obj}`; doors add
+  `{open,hinge,swing}` (see Doors).
   `rot` → `group.rotation.y = rot·π/180`; `layout-math.js` corners use the same mapping.
 - Room: `{id,name,pts:[[x,z],...],h,floor,floorTex?,wall,locked}` in `rooms[]`. `pts` = the
   **inside** outline (tape-measured), positive shoelace area, so edge a→b's
@@ -145,6 +147,21 @@ and preview new furniture. Simple > fancy.
   don't matter) and colour; glass emissive = `win × GLASS_GLOW`.
   `RectAreaLightUniformsLib.init()` runs once in main.js. Only standard/
   physical materials react; no shadows, so it also passes through walls.
+- Doors (`doorParts`/`doorSwing` in layout-math.js): a fixed frame (jambs +
+  head, the plate's depth) lines the wall hole; the leaf sits in a pivot
+  group (`userData.doorLeaf`, `openSign`) on the hinge jamb's inner edge, on
+  the face it swings towards. Fields: `open` (0–180°, 0 = closed), `hinge`
+  ('left'|'right' seen from the front, +z), `swing` ('in' = towards the front,
+  i.e. into the room it snapped to; 'out' = through the wall); defaults
+  `DOOR_DEFAULTS` (closed, left, in). `applyTransform` sets the pivot angle,
+  so opening doesn't rebuild; hinge/swing changes do. Item tab door row
+  (Open °, Hinge, Swings, Open/Close button) + double-click a door in 3D
+  (`toggleDoor`: 0 ↔ 90°, instant). Swing area = hinge + arc over
+  max(90°, open) (`doorSwing().poly`); `computeOverlaps` flags solid pieces
+  in it at the leaf's height (`blocking`: orange outline, "in a door's
+  swing"; the door: "something is in its swing") and calls `plan.redraw()`.
+  Plan draws each swing wedge (orange when blocked) and the leaf
+  (`ctx.getDoorSwings`).
 - Ambient occlusion: the 3D view renders through `composer` (RenderPass →
   `GTAOPass` → OutputPass, 4× MSAA HalfFloat target); Plan view and AO-off
   use plain `renderer.render`. GTAO lengths are cm (`thickness` must be tens
@@ -165,14 +182,17 @@ and preview new furniture. Simple > fancy.
   (`sunAz` optional: older saves keep the current direction, default 130).
   `rooms[].locked` and `rooms[].roomLock` are optional (older saves load
   unlocked); so is `rooms[].floorTex` (missing or unknown = plain; plain is
-  saved as no field).
+  saved as no field). Door items' `open`/`hinge`/`swing` are optional
+  (older saves load closed, left, in); other items never carry them.
   v1 `{room:{w,d,h,floor,wall,light,snap}, items}` still loads (→ rectangle).
 
 ## Constraints so far
 - Any number of rooms, each any (non-self-crossing) shape, no overlaps.
-  Rooms join through a shared wall only: no openings between them yet.
+  Rooms join through a shared wall; a door in it can be opened to see (and
+  let the sun) through. There's no leafless doorway type.
 - Doors/windows are plates in front of a wall, with a matching hole cut
-  through it; the sun only comes in through those holes.
+  through it; the sun only comes in through those holes. A door is a frame
+  + a swinging leaf; a window is a frame + glass.
 
 ## Roadmap
 Lives in [TODO.md](TODO.md#roadmap-from-the-original-handoff) with the known

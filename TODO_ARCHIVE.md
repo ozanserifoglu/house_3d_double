@@ -5,6 +5,7 @@ Finished items moved out of [TODO.md](TODO.md), newest first.
 ## 2026-11-13
 
 ### Roadmap
+- [x] Openings between rooms (roadmap item 4): doors open and close. Frame + leaf on a hinge; Item tab Open °, Hinge (left/right), Swings (in/out), Open/Close button, double-click in 3D. Plan draws each door's swing area; furniture standing in it is flagged orange. Saved as optional `open`/`hinge`/`swing` on door items.
 - [x] Real sun patches through windows (roadmap item 1): shadow-only wall twins + invisible ceilings keep the sun out except through door/window holes; window frames cast the bars; "Sun from" direction slider in the Room tab (saved as `settings.sunAz`).
 - [x] Real wall holes for doors/windows (roadmap item 4): each opening cuts its w × h out of the wall it sits on, including shared walls; walls are rebuilt whenever any opening changes (clicked through: add, resize, drag onto another wall, import, reload).
 

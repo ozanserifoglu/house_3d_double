@@ -184,6 +184,55 @@ export function frontFacesRoom(it, rooms) {
   return !best || fx * best.e.nx + fz * best.e.nz < 0; // front · outward < 0 → inward
 }
 
+// ---------- Doors: a fixed frame and a leaf swinging on a hinge ----------
+// Door item fields (all optional; missing = closed, left, in):
+//   open:  leaf angle in degrees, 0 = closed, up to 180.
+//   hinge: 'left' | 'right', seen from the door's front (local +z).
+//   swing: 'in' = the leaf swings towards the front (into the room the door
+//          was snapped to); 'out' = towards the back, through the wall.
+// In the door's local frame (front +z, plate depth d centred on z = 0):
+//   sx = +1 when the leaf extends +x from its hinge (left hinge), else -1;
+//   sz = +1 when it swings to +z (in), else -1.
+// The hinge axis sits on the jamb's inner edge, on the face the leaf swings
+// towards; a positive local rotation.y turns +x towards -z, hence openSign.
+export const DOOR_DEFAULTS = { open: 0, hinge: 'left', swing: 'in' };
+export const DOOR_SWEEP_MIN = 90; // the swing area always covers at least a quarter turn
+
+export function doorParts(it) {
+  const jamb = Math.max(2, Math.min(5, it.w / 6));
+  const sx = it.hinge === 'right' ? -1 : 1, sz = it.swing === 'out' ? -1 : 1;
+  return {
+    jamb,
+    leafW: Math.max(1, it.w - 2 * jamb - 0.6), // 0.3 cm gap at each jamb
+    leafT: Math.max(1, Math.min(4, it.d)),
+    sx,
+    sz,
+    hingeX: -sx * (it.w / 2 - jamb),
+    hingeZ: (sz * it.d) / 2,
+    openSign: -sx * sz,
+  };
+}
+
+// The floor area the door's leaf sweeps, as a world polygon (hinge + arc), and
+// the leaf's free edge at its current angle (for drawing the leaf in Plan).
+export function doorSwing(it) {
+  const p = doorParts(it);
+  const a = it.rot * DEG, c = Math.cos(a), s = Math.sin(a);
+  const world = (lx, lz) => [it.x + lx * c + lz * s, it.z - lx * s + lz * c];
+  const r = p.leafW + 0.3;
+  // The free edge with the leaf turned by phi degrees, in the door's frame.
+  const tip = (phi) => {
+    const t = p.openSign * phi * DEG;
+    return world(p.hingeX + p.sx * r * Math.cos(t), p.hingeZ - p.sx * r * Math.sin(t));
+  };
+  const open = Math.max(0, Math.min(180, it.open || 0));
+  const sweep = Math.max(DOOR_SWEEP_MIN, open);
+  const steps = Math.ceil(sweep / 10);
+  const poly = [world(p.hingeX, p.hingeZ)];
+  for (let i = 0; i <= steps; i++) poly.push(tip((sweep * i) / steps));
+  return { hinge: poly[0], tip: tip(open), poly };
+}
+
 // Separating-axis test for two rotated rectangles. Touching (≤0.5 cm) is not overlap.
 export function footprintsOverlap(a, b) {
   const pa = corners(a), pb = corners(b);
