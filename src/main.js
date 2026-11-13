@@ -43,7 +43,7 @@ attachColorPickers(store);
 // ---------- State (all lengths in cm) ----------
 // View/drawing preferences, not part of undo history. innerWallT = the gap
 // left between rooms when snapping one to another (the wall between them).
-const settings = { light: 'day', snap: 5, innerWallT: 10 };
+const settings = { light: 'day', snap: 5, innerWallT: 10, sunAz: 130 };
 // Rooms and the selected room live in rooms.js.
 function selectRoom(id) {
   selectRoomId(id);
@@ -82,7 +82,6 @@ const hemi = new THREE.HemisphereLight(0xffffff, 0xb8a98f, 1);
 scene.add(hemi);
 
 const sun = new THREE.DirectionalLight(0xfff6e5, 1.8);
-sun.position.set(300, 700, 250);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0005;
@@ -107,6 +106,17 @@ const aoPass = new GTAOPass(scene, camera, 1, 1);
 // (view depth) an occluder may sit in front of a point and still count — the
 // default 1 would be 1 cm here and the AO all but vanishes. scale > 1 deepens it.
 aoPass.updateGtaoMaterial({ radius: 40, thickness: 100, distanceExponent: 1, scale: 1.5, samples: 16 });
+// Shadow-only meshes (room-mesh.js: wall twins, ceilings) write no colour or
+// depth, but the AO pass draws every visible mesh with its own normal
+// material, so they'd stand in front of the room there. Hide them for it
+// (restoreVisibility puts them back).
+const aoHide = aoPass.overrideVisibility.bind(aoPass);
+aoPass.overrideVisibility = () => {
+  aoHide();
+  scene.traverse((o) => {
+    if (o.userData.shadowOnly) o.visible = false;
+  });
+};
 composer.addPass(new RenderPass(scene, camera));
 composer.addPass(aoPass);
 composer.addPass(new OutputPass());
@@ -291,7 +301,9 @@ function rebuildItem(it) {
   BUILD[it.type](g, it.w, it.d, it.h, it.color);
   g.traverse((o) => {
     if (o.isMesh) {
-      o.castShadow = !CATALOG[it.type].noCol || it.type === 'door';
+      // Doors and window frames cast shadows (the sun through a window
+      // shows its bars); other noCol pieces (rug) and the glass don't.
+      o.castShadow = !CATALOG[it.type].noCol || it.type === 'door' || (it.type === 'window' && !o.userData.windowGlass);
       o.receiveShadow = true;
     }
   });
@@ -407,11 +419,13 @@ function refreshOutlines() {
 
 // ---------- Lighting presets ----------
 // env = environment (bounced light) strength, exposure = tone-mapping exposure,
-// win/winCol = window light (RectAreaLight, nits) and its colour.
+// win/winCol = window light (RectAreaLight, nits) and its colour,
+// sunEl = the sun's height above the horizon (deg); where it comes from is
+// settings.sunAz (aimSun).
 const LIGHTING = {
-  day: { bg: '#dbe6f0', hemi: 0.15, hemiSky: '#ffffff', hemiGnd: '#b8a98f', sun: 2.6, sunCol: '#fff3dc', lamp: 0, env: 0.3, exposure: 0.75, win: 2.5, winCol: '#e4eeff' },
-  evening: { bg: '#2c2740', hemi: 0.2, hemiSky: '#ffcfa0', hemiGnd: '#4a3a46', sun: 1.2, sunCol: '#ff9f5a', lamp: 260, env: 0.12, exposure: 0.8, win: 0.8, winCol: '#ffc9a0' },
-  night: { bg: '#0c0f1d', hemi: 0.1, hemiSky: '#6f86ff', hemiGnd: '#1a1a28', sun: 0.15, sunCol: '#7f94ff', lamp: 320, env: 0.03, exposure: 0.9, win: 0, winCol: '#7f94ff' },
+  day: { bg: '#dbe6f0', hemi: 0.15, hemiSky: '#ffffff', hemiGnd: '#b8a98f', sun: 7, sunCol: '#fff3dc', sunEl: 45, lamp: 0, env: 0.3, exposure: 0.75, win: 2.5, winCol: '#e4eeff' },
+  evening: { bg: '#2c2740', hemi: 0.2, hemiSky: '#ffcfa0', hemiGnd: '#4a3a46', sun: 3, sunCol: '#ff9f5a', sunEl: 22, lamp: 260, env: 0.12, exposure: 0.8, win: 0.8, winCol: '#ffc9a0' },
+  night: { bg: '#0c0f1d', hemi: 0.1, hemiSky: '#6f86ff', hemiGnd: '#1a1a28', sun: 0.15, sunCol: '#7f94ff', sunEl: 40, lamp: 320, env: 0.03, exposure: 0.9, win: 0, winCol: '#7f94ff' },
 };
 const GLASS_GLOW = 0.15; // window glass emissive per unit of window light
 
@@ -426,6 +440,7 @@ function applyLighting() {
   hemi.groundColor.set(p.hemiGnd);
   sun.intensity = p.sun;
   sun.color.set(p.sunCol);
+  aimSun();
   scene.traverse((o) => {
     if (o.userData.lampLight) o.intensity = p.lamp;
     if (o.userData.windowLight) {
@@ -438,6 +453,26 @@ function applyLighting() {
     }
     if (o.material && o.material.isMeshStandardMaterial) o.material.envMapIntensity = p.env;
   });
+}
+
+// Point the sun at the rooms from settings.sunAz (compass degrees in the plan:
+// 0 = from the top of the plan (-z), 90 = from the right (+x)) at the
+// preset's elevation, and fit its shadow frustum around all rooms.
+function aimSun() {
+  const b = bounds(rooms.map((r) => r.pts));
+  const az = settings.sunAz * DEG, el = LIGHTING[settings.light].sunEl * DEG;
+  const D = 1500; // distance from the target; inside the shadow camera's far
+  sun.target.position.set(b.cx, 0, b.cz);
+  sun.position.set(b.cx + Math.sin(az) * Math.cos(el) * D, Math.sin(el) * D, b.cz - Math.cos(az) * Math.cos(el) * D);
+  // Seen along the sun, the rooms fit in a circle of half their diagonal,
+  // plus the walls and the ceilings' height.
+  const ext = Math.hypot(b.w, b.d) / 2 + WALL_T + Math.max(...rooms.map((r) => r.h));
+  const sc = sun.shadow.camera;
+  sc.left = -ext;
+  sc.right = ext;
+  sc.top = ext;
+  sc.bottom = -ext;
+  sc.updateProjectionMatrix();
 }
 
 // ---------- Room ----------
@@ -465,18 +500,7 @@ function buildRooms() {
   buildRoomMeshes(roomGroup, rooms);
   buildWalls();
 
-  // Fit the sun's shadow frustum to the rooms.
-  const b = bounds(rooms.map((r) => r.pts));
-  sun.position.set(b.cx + 300, 700, b.cz + 250);
-  sun.target.position.set(b.cx, 0, b.cz);
-  const ext = Math.max(b.w, b.d) * 0.75 + WALL_T;
-  const sc = sun.shadow.camera;
-  sc.left = -ext;
-  sc.right = ext;
-  sc.top = ext;
-  sc.bottom = -ext;
-  sc.updateProjectionMatrix();
-  applyLighting(); // new room materials need their environment strength
+  applyLighting(); // new room materials need their environment strength (aims the sun too)
   plan.refresh();
 }
 
@@ -707,6 +731,7 @@ function syncRoomInputs() {
   $('#r-floortex').value = r.floorTex || 'plain';
   $('#r-wall').value = r.wall;
   $('#r-light').value = settings.light;
+  setIfNotFocused($('#r-sun'), settings.sunAz);
   $('#r-snap').value = settings.snap;
   $('#r-ao').value = aoOn ? 'on' : 'off';
   // A locked room ("done") keeps its outline and ceiling; name/colours stay editable.
@@ -854,6 +879,11 @@ $('#r-light').addEventListener('change', (e) => {
   applyLighting();
   scheduleAutosave();
 });
+$('#r-sun').addEventListener('input', (e) => {
+  settings.sunAz = ((parseFloat(e.target.value) % 360) + 360) % 360;
+  aimSun();
+  scheduleAutosave();
+});
 $('#r-ao').addEventListener('change', (e) => {
   aoOn = e.target.value === 'on';
   store.set('rp3d_ao', aoOn ? '1' : '0');
@@ -904,6 +934,7 @@ function loadLayout(data) {
   if (s.light) settings.light = s.light;
   if (s.snap !== undefined) settings.snap = s.snap;
   if (s.innerWallT > 0) settings.innerWallT = s.innerWallT;
+  if (Number.isFinite(s.sunAz)) settings.sunAz = s.sunAz;
   setRooms(parseRooms(parsed));
   rooms.forEach(pruneLocks);
   plan.reset();

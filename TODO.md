@@ -5,7 +5,6 @@ Finished items move to [TODO_ARCHIVE.md](TODO_ARCHIVE.md).
 
 ## Roadmap (from the original handoff)
 1. Realistic render style. Done: soft shadows, environment light (`RoomEnvironment`), ACES tone mapping, rounded edges, AO (GTAO), canvas-drawn textures (wood, fabric, parquet/tile floors), window light (one `RectAreaLight` per window).
-   - [ ] Real sun patches through windows: need wall holes (item 4) and a light that casts shadows.
 2. [ ] Import real furniture meshes (GLB/glTF first; OBJ/FBX later): file picker, scale to cm, then behave like any item (drag/rotate/overlap/save). Keep models < ~5 MB. Saved layouts reference files in `public/models/` so they reload.
 3. [ ] Enter real apartment dimensions and furniture.
 4. Maybe (non-rectangular and multi-room rooms are done):
@@ -35,8 +34,15 @@ Each was tested on its own branch; the combined build only got a build and one d
 - [ ] Colour picker: Ctrl+Z / Ctrl+Y while it is open changes the colour underneath but the open picker keeps showing the old one until it is closed.
 - [ ] Saved layouts are per site (localStorage). Layouts from the claude.ai artifact must be moved over by hand: Export → Copy there, Import here.
 
+## Sun through windows
+- [ ] The sun direction is one global setting (`sunAz`), not tied to real north or time of day; elevation is fixed per preset (day 45°, evening 22°, night 40° "moon").
+- [ ] Evening: a low sun lands far into the room (often on the front wall, which the 3D view hides), and the lamps outshine it; the patch is subtle.
+- [ ] The room is now in shade apart from the patches: the day preset's look depends on the window lights + environment. Day sun was raised 2.6 → 7 and evening 1.2 → 3 so the patches read; other strengths are unchanged.
+- [ ] Outside the rooms (the ground around them) there's no ground plane, so the sun's light outside isn't shown; exterior wall faces are lit by the sun (the twins don't shade them).
+- [ ] The "Sun from" slider shows no number (only a tooltip explaining the directions).
+- [ ] Not phone-tested: the shadow map now draws every wall twice (visible wall doesn't cast, twin does) plus a ceiling per room.
+
 ## Wall holes
-- [ ] Walls don't cast shadows (`castShadow` off), so the sun doesn't come through a window hole yet (roadmap 1, next step).
 - [ ] The plan view and its overlay don't show holes; doors aren't drawn as gaps in the wall band.
 - [ ] A door/window turned with R or the angle field and pushed off the wall by `clampToRooms` (see Bugs) cuts no hole until it's dragged back onto the wall.
 - [ ] The skirting board runs on across a door's opening (hidden behind the door plate, which is deeper).

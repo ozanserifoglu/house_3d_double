@@ -108,7 +108,19 @@ and preview new furniture. Simple > fancy.
   lights. `LIGHTING[preset]` holds each preset's strengths incl. `env` and
   `exposure`; `applyLighting()` sets `envMapIntensity` on every standard
   material (0.160 has no `scene.environmentIntensity`), so call it after
-  creating materials (rebuildItem/buildRooms already do). Furniture `box()`
+  creating materials (rebuildItem/buildRooms already do). It also calls
+  `aimSun()`: the sun comes from `settings.sunAz` (plan compass: 0 = from
+  the plan's top/-z, 90 = from +x; Room tab "Sun from" slider) at the
+  preset's `sunEl` elevation, its shadow box fitted around all rooms.
+- Sun through windows: the visible walls don't cast shadows; each wall has
+  a shadow-only twin (same geometry, `colorWrite`/`depthWrite` off,
+  `userData.shadowOnly`), and each room an invisible 10 cm ceiling slab over
+  its outline + walls (room-mesh.js). So the sun reaches the floor only
+  through door/window holes, whichever walls the camera hides. The GTAO
+  pass draws every visible mesh with its own material, so main.js patches
+  `aoPass.overrideVisibility` to hide `shadowOnly` meshes for it. Window
+  frames cast shadows (the bars show in the patch); glass and rugs don't.
+  Furniture `box()`
   parts are `RoundedBoxGeometry` (≤1.5 cm radius; parts < 2 cm stay sharp).
 - Textures (`textures.js`): canvas-drawn in code, no files. Kinds `wood`,
   `fabric` (furniture) and `plain`/`parquet`/`tile` (floors), each drawn once
@@ -149,7 +161,8 @@ and preview new furniture. Simple > fancy.
   camera is behind them and all hide in top view; skirting stays.
 - Persistence: localStorage keys `rp3d_auto`, `rp3d_slot_A|B|C`, `rp3d_ao`,
   `rp3d_recent_colors` (in-memory fallback). Layout JSON v2 =
-  `{version:2, settings:{light,snap,innerWallT}, rooms:[...], items:[...without obj]}`.
+  `{version:2, settings:{light,snap,innerWallT,sunAz}, rooms:[...], items:[...without obj]}`
+  (`sunAz` optional: older saves keep the current direction, default 130).
   `rooms[].locked` and `rooms[].roomLock` are optional (older saves load
   unlocked); so is `rooms[].floorTex` (missing or unknown = plain; plain is
   saved as no field).
@@ -159,7 +172,7 @@ and preview new furniture. Simple > fancy.
 - Any number of rooms, each any (non-self-crossing) shape, no overlaps.
   Rooms join through a shared wall only: no openings between them yet.
 - Doors/windows are plates in front of a wall, with a matching hole cut
-  through it. Walls don't cast shadows yet.
+  through it; the sun only comes in through those holes.
 
 ## Roadmap
 Lives in [TODO.md](TODO.md#roadmap-from-the-original-handoff) with the known

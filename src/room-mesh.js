@@ -99,26 +99,46 @@ function wallGeometry(piece, H, holes) {
   return g;
 }
 
+// A mesh that only casts shadows: it writes neither colour nor depth, so the
+// camera never sees it, but the shadow pass (which uses its own depth
+// material) still draws it. Tagged so main.js keeps it out of the ambient
+// occlusion pass, which renders every visible mesh with its own material.
+function shadowCaster(geo, mat) {
+  const m = new THREE.Mesh(geo, mat);
+  m.castShadow = true;
+  m.userData.shadowOnly = true;
+  return m;
+}
+
 // Replace everything in `group` with the walls of `rooms`: outer walls wallT
 // thick, one shared wall where rooms face each other (see walls.js), with
 // holes where `openings` (door/window items) sit. A shared wall takes its
 // owning room's colour/height. Returns [{ m: Mesh, a: [x, z], nx, nz, shared }]
 // — a point on the wall's inside face and its outward normal, for
 // updateWallVisibility.
+//
+// The sun's shadows don't depend on what the camera sees: each wall has a
+// shadow-only twin that stays when the wall itself auto-hides, and an
+// invisible ceiling over each room (walls included) keeps the sun out except
+// through the door/window holes.
 export function buildWallMeshes(group, rooms, wallT, openings) {
   clearGroup(group);
   const walls = [];
   const wallMats = new Map(rooms.map((r) => [r.id, new THREE.MeshStandardMaterial({ color: r.wall, roughness: 0.95 })]));
+  const casterMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
   const heights = new Map(rooms.map((r) => [r.id, r.h]));
   wallPieces(rooms, wallT).forEach((p) => {
     const geo = wallGeometry(p, heights.get(p.roomId), pieceHoles(p, openings));
     const m = new THREE.Mesh(geo, wallMats.get(p.roomId));
     m.receiveShadow = true;
-    group.add(m);
+    group.add(m, shadowCaster(geo, casterMat));
     walls.push({ m, a: p.a, nx: p.nx, nz: p.nz, shared: p.shared });
   });
+  rooms.forEach((r) => group.add(shadowCaster(prismGeometry(offsetPolygon(r.pts, wallT), r.h, CEILING_T), casterMat)));
   return walls;
 }
+
+const CEILING_T = 10; // shadow-only ceiling slab, cm
 
 // Hide walls whose outside faces the camera, and all walls when looking
 // (near) straight down. Shared walls are inside the apartment: they only

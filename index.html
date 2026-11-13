@@ -88,6 +88,9 @@
         <label class="f">Lighting
           <select id="r-light"><option value="day">Day</option><option value="evening">Evening</option><option value="night">Night</option></select>
         </label>
+        <label class="f" title="Where the sun comes from, as seen in Plan view: 0 = top, 90 = right, 180 = bottom, 270 = left. It reaches the floor through doors and windows.">Sun from °
+          <input id="r-sun" type="range" min="0" max="355" step="5">
+        </label>
         <label class="f" title="Soft shading where surfaces meet (3D view). Turn off if a phone feels slow.">Ambient occlusion
           <select id="r-ao"><option value="on">On</option><option value="off">Off</option></select>
         </label>
