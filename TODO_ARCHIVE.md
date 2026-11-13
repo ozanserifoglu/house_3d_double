@@ -2,6 +2,11 @@
 
 Finished items moved out of [TODO.md](TODO.md), newest first.
 
+## 2026-11-13
+
+### Roadmap
+- [x] Real wall holes for doors/windows (roadmap item 4): each opening cuts its w × h out of the wall it sits on, including shared walls; walls are rebuilt whenever any opening changes (clicked through: add, resize, drag onto another wall, import, reload).
+
 ## 2026-11-12
 
 ### Code smells

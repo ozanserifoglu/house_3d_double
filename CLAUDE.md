@@ -49,10 +49,21 @@ and preview new furniture. Simple > fancy.
   `selectedRoomId` (live `export let` bindings: read anywhere, reassign only
   via `setRooms(list)` / `selectRoomId(id)`; mutating the array in place is
   fine), `WALL_T`, `newRoom`, `currentRoom`, `overlapsOthers`, `roomData`,
-  `parseRooms`. `room-mesh.js` builds floors/skirting/walls
-  (`buildRoomMeshes(group, rooms, wallT)` → walls) and does wall auto-hide
-  (`updateWallVisibility`). main.js keeps `buildRooms()` (meshes + sun
-  shadow fit + lighting + plan refresh), `selectRoom()` and the Room tab UI.
+  `parseRooms`. `room-mesh.js` builds floors/skirting
+  (`buildRoomMeshes(group, rooms)`) and walls (`buildWallMeshes(group,
+  rooms, wallT, openings)` → walls, in their own `wallGroup`) and does wall
+  auto-hide (`updateWallVisibility`). main.js keeps `buildRooms()` (meshes +
+  sun shadow fit + lighting + plan refresh), `selectRoom()` and the Room tab UI.
+- Wall holes: every door/window cuts its plate's w × h out of the wall
+  piece(s) it sits on (`pieceHoles` in walls.js: face parallel to the wall,
+  centre within the wall thickness ± plate depth, so a plate on the far side
+  of a shared wall counts too). `wallGeometry` (room-mesh.js) slices the
+  piece's mitred quad across at each hole side and builds each slice only
+  outside its holes (merged into one mesh per piece). The plate stays in the
+  room as the frame/leaf. `syncWallHoles()` runs every frame in `animate`:
+  it compares a key of all openings' x/z/rot/w/d/h/y and rebuilds only the
+  walls when it changed, so no item code path needs its own call.
+  The plan overlay doesn't show the holes.
 - Locked walls (`locks.js`): lock the wall's **length (and angle)**, not its
   place. `room.locked` = each locked wall's [start, end] corners where it
   last was. Edits move corners via `carryLocked` (a locked wall touching a
@@ -147,7 +158,8 @@ and preview new furniture. Simple > fancy.
 ## Constraints so far
 - Any number of rooms, each any (non-self-crossing) shape, no overlaps.
   Rooms join through a shared wall only: no openings between them yet.
-- Doors/windows are plates on walls (no holes).
+- Doors/windows are plates in front of a wall, with a matching hole cut
+  through it. Walls don't cast shadows yet.
 
 ## Roadmap
 Lives in [TODO.md](TODO.md#roadmap-from-the-original-handoff) with the known

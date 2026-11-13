@@ -14,7 +14,7 @@ import { createPlan } from './plan.js';
 import { attachColorPickers } from './color-picker.js';
 import { setTextureAnisotropy } from './textures.js';
 import { WALL_T, rooms, setRooms, newRoom, nextRoomName, selectRoomId, currentRoom, overlapsOthers, roomData, parseRooms } from './rooms.js';
-import { buildRoomMeshes, updateWallVisibility } from './room-mesh.js';
+import { buildRoomMeshes, buildWallMeshes, updateWallVisibility } from './room-mesh.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
@@ -113,9 +113,11 @@ composer.addPass(new OutputPass());
 const aoSaved = store.get('rp3d_ao');
 let aoOn = aoSaved !== null ? aoSaved === '1' : !matchMedia('(pointer: coarse)').matches;
 
-const roomGroup = new THREE.Group();
-scene.add(roomGroup);
-let walls = []; // from buildRoomMeshes (room-mesh.js), for wall auto-hide
+const roomGroup = new THREE.Group(); // floors + skirting
+const wallGroup = new THREE.Group(); // walls, rebuilt alone when an opening moves
+scene.add(roomGroup, wallGroup);
+let walls = []; // from buildWallMeshes (room-mesh.js), for wall auto-hide
+let wallHolesKey = ''; // the openings the walls were last cut for (syncWallHoles)
 
 // ---------- Pointer: drag furniture on the floor ----------
 // Registered (capture phase) before OrbitControls so it can disable
@@ -439,9 +441,29 @@ function applyLighting() {
 }
 
 // ---------- Room ----------
+// Doors and windows cut holes in the walls they sit on (room-mesh.js).
+const openingItems = () => items.filter((it) => CATALOG[it.type].opening);
+const holesKey = (ops) => ops.map((o) => [o.x, o.z, o.rot, o.w, o.d, o.h, o.y || 0].map((v) => v.toFixed(1)).join(',')).join(';');
+
+function buildWalls() {
+  const ops = openingItems();
+  walls = buildWallMeshes(wallGroup, rooms, WALL_T, ops);
+  wallHolesKey = holesKey(ops);
+}
+
+// Rebuild the walls when any door/window moved, turned, resized, appeared or
+// went away. Run every frame (animate), so every path that changes items —
+// drag, typed fields, delete, undo, load — is covered without its own call.
+function syncWallHoles() {
+  if (holesKey(openingItems()) === wallHolesKey) return;
+  buildWalls();
+  applyLighting(); // the new wall materials need their environment strength
+}
+
 // Rebuild the room meshes (room-mesh.js), then refit the sun and the plan.
 function buildRooms() {
-  walls = buildRoomMeshes(roomGroup, rooms, WALL_T);
+  buildRoomMeshes(roomGroup, rooms);
+  buildWalls();
 
   // Fit the sun's shadow frustum to the rooms.
   const b = bounds(rooms.map((r) => r.pts));
@@ -1057,6 +1079,7 @@ function animate() {
   activeControls().update();
   // All walls hide from (near) top view and in Plan view (which draws them
   // as a 2D band instead).
+  syncWallHoles();
   updateWallVisibility(walls, camera.position, plan.active || controls.getPolarAngle() < 0.35);
   if (plan.active) plan.update();
   if (aoOn && !plan.active) composer.render();

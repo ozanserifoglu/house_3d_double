@@ -1,7 +1,8 @@
 // three.js meshes for the rooms: floors, skirting, walls (pieces from walls.js).
 import * as THREE from 'three';
 import { offsetPolygon } from './polygon.js';
-import { wallPieces } from './walls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { wallPieces, pieceHoles } from './walls.js';
 import { surface } from './textures.js';
 
 // Floor-plane polygon [[x, z], ...] → THREE.Shape. Shapes live in the xy
@@ -16,10 +17,8 @@ function prismGeometry(pts, y0, height) {
   return g;
 }
 
-// Replace everything in `group` with meshes for `rooms`. Returns the walls:
-// [{ m: Mesh, a: [x, z], nx, nz, shared }] — a point on the wall's inside
-// face and its outward normal, for updateWallVisibility.
-export function buildRoomMeshes(group, rooms, wallT) {
+// Dispose and remove everything in `group`.
+function clearGroup(group) {
   group.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
     if (o.material) {
@@ -28,8 +27,11 @@ export function buildRoomMeshes(group, rooms, wallT) {
     }
   });
   group.clear();
-  const walls = [];
+}
 
+// Replace everything in `group` with the floors and skirting of `rooms`.
+export function buildRoomMeshes(group, rooms) {
+  clearGroup(group);
   rooms.forEach((r) => {
     // Floor UVs are the shape's coordinates, i.e. cm, as textures.js expects.
     const floorGeo = new THREE.ShapeGeometry(toShape(r.pts));
@@ -48,13 +50,69 @@ export function buildRoomMeshes(group, rooms, wallT) {
       group.add(new THREE.Mesh(prismGeometry([r.pts[i], r.pts[j], inner[j], inner[i]], 0, 6), skirtMat));
     });
   });
+}
 
-  // Walls: outer walls wallT thick, one shared wall where rooms face each
-  // other (see walls.js). A shared wall takes its owning room's colour/height.
+// Part of convex polygon `pts` where sign·(t(p) − b) ≥ 0 (Sutherland–Hodgman, one plane).
+function clipHalf(pts, tOf, b, sign) {
+  const out = [], f = (p) => sign * (tOf(p) - b);
+  pts.forEach((p, i) => {
+    const q = pts[(i + 1) % pts.length], fp = f(p), fq = f(q);
+    if (fp >= 0) out.push(p);
+    if ((fp >= 0) !== (fq >= 0)) {
+      const k = fp / (fp - fq);
+      out.push([p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]);
+    }
+  });
+  return out;
+}
+
+// One wall piece, 0..H high, with rectangular holes ({t0,t1,y0,y1}, see
+// pieceHoles). The piece's (mitred, convex) quad is cut across at every hole
+// side; each slice is built only where no hole covers it, so the slices'
+// side faces form the reveals and the mitres stay intact.
+function wallGeometry(piece, H, holes) {
+  if (!holes.length) return prismGeometry(piece.quad, 0, H);
+  const ux = -piece.nz, uz = piece.nx;
+  const tOf = (p) => (p[0] - piece.a[0]) * ux + (p[1] - piece.a[1]) * uz;
+  const cuts = [...new Set(holes.flatMap((h) => [h.t0, h.t1]))].sort((p, q) => p - q);
+  const bounds = [-Infinity, ...cuts, Infinity];
+  const parts = [];
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    const lo = bounds[i], hi = bounds[i + 1];
+    let poly = piece.quad;
+    if (lo > -Infinity) poly = clipHalf(poly, tOf, lo, 1);
+    if (hi < Infinity) poly = clipHalf(poly, tOf, hi, -1);
+    if (poly.length < 3) continue;
+    // Solid heights: 0..H minus the holes covering this slice.
+    const mid = lo === -Infinity ? hi - 1 : hi === Infinity ? lo + 1 : (lo + hi) / 2;
+    const gaps = holes.filter((h) => h.t0 <= mid && mid <= h.t1).sort((p, q) => p.y0 - q.y0);
+    let y = 0;
+    for (const g of gaps) {
+      if (g.y0 - y > 0.1) parts.push(prismGeometry(poly, y, g.y0 - y));
+      y = Math.max(y, g.y1);
+    }
+    if (H - y > 0.1) parts.push(prismGeometry(poly, y, H - y));
+  }
+  if (!parts.length) return new THREE.BufferGeometry(); // the hole covers the whole piece
+  const g = mergeGeometries(parts);
+  parts.forEach((p) => p.dispose());
+  return g;
+}
+
+// Replace everything in `group` with the walls of `rooms`: outer walls wallT
+// thick, one shared wall where rooms face each other (see walls.js), with
+// holes where `openings` (door/window items) sit. A shared wall takes its
+// owning room's colour/height. Returns [{ m: Mesh, a: [x, z], nx, nz, shared }]
+// — a point on the wall's inside face and its outward normal, for
+// updateWallVisibility.
+export function buildWallMeshes(group, rooms, wallT, openings) {
+  clearGroup(group);
+  const walls = [];
   const wallMats = new Map(rooms.map((r) => [r.id, new THREE.MeshStandardMaterial({ color: r.wall, roughness: 0.95 })]));
   const heights = new Map(rooms.map((r) => [r.id, r.h]));
   wallPieces(rooms, wallT).forEach((p) => {
-    const m = new THREE.Mesh(prismGeometry(p.quad, 0, heights.get(p.roomId)), wallMats.get(p.roomId));
+    const geo = wallGeometry(p, heights.get(p.roomId), pieceHoles(p, openings));
+    const m = new THREE.Mesh(geo, wallMats.get(p.roomId));
     m.receiveShadow = true;
     group.add(m);
     walls.push({ m, a: p.a, nx: p.nx, nz: p.nz, shared: p.shared });
