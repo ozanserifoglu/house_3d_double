@@ -95,3 +95,34 @@ export function wallPieces(rooms, T) {
   });
   return pieces;
 }
+
+const DEG = Math.PI / 180;
+
+/**
+ * Holes the openings (doors/windows) cut in one wall piece →
+ * [{ t0, t1, y0, y1 }]: t along the piece's edge from its room corner `a`
+ * (unit u = (-nz, nx)), y in cm above the floor. An opening is on the piece
+ * when its face is (nearly) parallel to the wall and its centre lies within
+ * the wall's thickness plus the plate's depth on either side, so a plate on
+ * the far side of a shared wall cuts it too. Openings = items
+ * { x, z, rot, w, d, h, y }; the hole is the plate's w × h, clipped to the
+ * piece (an opening across two pieces cuts both).
+ */
+export function pieceHoles(piece, openings) {
+  const { a, nx, nz } = piece, ux = -nz, uz = nx;
+  const tOf = (p) => (p[0] - a[0]) * ux + (p[1] - a[1]) * uz;
+  const pt0 = Math.min(tOf(piece.quad[0]), tOf(piece.quad[1]));
+  const pt1 = Math.max(tOf(piece.quad[0]), tOf(piece.quad[1]));
+  const holes = [];
+  for (const o of openings) {
+    const r = o.rot * DEG;
+    if (Math.abs(Math.sin(r) * nx + Math.cos(r) * nz) < 0.95) continue; // face not parallel to the wall
+    const s = (o.x - a[0]) * nx + (o.z - a[1]) * nz; // outward from the room's face
+    if (s < -o.d - 2 || s > piece.d + o.d + 2) continue;
+    const tc = tOf([o.x, o.z]);
+    const t0 = Math.max(pt0, tc - o.w / 2), t1 = Math.min(pt1, tc + o.w / 2);
+    const y0 = Math.max(0, o.y || 0), y1 = (o.y || 0) + o.h;
+    if (t1 - t0 > 0.5 && y1 - y0 > 0.5) holes.push({ t0, t1, y0, y1 });
+  }
+  return holes;
+}
