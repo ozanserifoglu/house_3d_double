@@ -5,6 +5,7 @@ Finished items moved out of [TODO.md](TODO.md), newest first.
 ## 2026-11-13
 
 ### Roadmap
+- [x] Real sun patches through windows (roadmap item 1): shadow-only wall twins + invisible ceilings keep the sun out except through door/window holes; window frames cast the bars; "Sun from" direction slider in the Room tab (saved as `settings.sunAz`).
 - [x] Real wall holes for doors/windows (roadmap item 4): each opening cuts its w × h out of the wall it sits on, including shared walls; walls are rebuilt whenever any opening changes (clicked through: add, resize, drag onto another wall, import, reload).
 
 ## 2026-11-12

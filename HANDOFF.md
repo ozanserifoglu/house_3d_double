@@ -14,38 +14,38 @@ _Last updated: 2026-11-13_
 - `master` = `d34270f` (PR #17). It deploys itself to GitHub Pages on every
   push (`.github/workflows/deploy.yml`, about 30 s):
   https://ozanserifoglu.github.io/house_3d_double/
-- **Branch `feature/wall-holes`: real door/window holes, NOT committed yet**
-  (the owner hadn't asked for a commit). Changes in `src/walls.js`
-  (`pieceHoles`), `src/room-mesh.js` (`buildWallMeshes`, `wallGeometry`),
-  `src/main.js` (`wallGroup`, `buildWalls`, `syncWallHoles`) plus CLAUDE.md,
-  TODO.md, TODO_ARCHIVE.md and this file.
+- **PR #18 `feature/wall-holes`** (real door/window holes): open, not merged.
+- **Branch `feature/sun-through-windows`**, stacked on `feature/wall-holes`
+  (it needs the holes): sun through windows, **not committed yet**. Changes
+  in `src/room-mesh.js` (shadow-only wall twins + ceilings), `src/main.js`
+  (`aimSun`, AO exclusion, window-frame shadows, `#r-sun`, `settings.sunAz`,
+  stronger day/evening sun), `index.html` (slider), docs. Open its PR against
+  `master` after #18 merges (or against `feature/wall-holes` before).
 - PRs have no CI checks. Test locally (`npm run dev`, `npm run build`).
 
 ## Last session (2026-11-13)
-- **Wall holes** (roadmap 4): see CLAUDE.md "Wall holes". Checked: build
-  passes; a Node raycast test (not kept) went through the window/door holes
-  and hit wall below/above/beside them; in the app, a door on a shared wall
-  shows inset from the other room, holes follow add, resize, dragging a door
-  onto another wall, import and reload. No console errors. Not clicked
-  through: undo/redo and R-rotate of an opening, phone.
+- **Wall holes** (#18): see CLAUDE.md "Wall holes". Checked with a Node
+  raycast test and in the app (shared-wall door, add/resize/drag/import/reload).
+- **Sun through windows**: see CLAUDE.md "Sun through windows". Clicked
+  through: day patch with the mullion's shadow in 3D, Eye level and Top view;
+  evening (subtle, lamps dominate); slider saved/restored on reload; AO on;
+  no console errors; build passes. Not clicked through: night preset, AO off,
+  Plan view, two rooms, phone.
 - The owner's order stands: **realistic light + wall holes, then GLB import.**
 - GLB model storage, owner's pick still open: (1) models committed to
   `public/models/`, (2) picked from disk into IndexedDB, (3) both
   (recommended). It changes the save format, so ask before building it.
 
 ## Next up (suggested order)
-1. Commit `feature/wall-holes`, open the PR, merge (after the owner's OK).
-2. **Sun patches through windows** (roadmap 1): walls need `castShadow`
-   (currently off) so sunlight only reaches the floor through the holes;
-   check the sun direction per preset actually goes through a window, and
-   the shadow-camera bias with 12 cm walls. Window `RectAreaLight`s still
-   cast no shadows (TODO.md).
+1. Merge #18; commit + PR `feature/sun-through-windows` (after the owner's OK).
+2. **Openings between rooms** (roadmap 4): a door in a shared wall still has
+   a solid leaf. Options: an "open doorway" type (no leaf, hole only) or a
+   door leaf drawn ajar. Ask which before building it.
 3. Optional before GLB: `items.js` split (TODO.md "Code smells").
 4. GLB/glTF import (roadmap 2), after the storage decision.
 
 ## Loose ends
-- Wall-hole follow-ups are listed in TODO.md "Wall holes" (plan overlay
-  doesn't show holes, skirting across doors, R-turned openings).
+- Follow-ups in TODO.md "Sun through windows" and "Wall holes".
 - An empty `.claude/worktrees/` folder remains; git ignores it.
 
 ## Notes for a hub session running agents
