@@ -11,15 +11,14 @@ to about a screen. History lives in `git log`, the merged PRs and
 _Last updated: 2026-11-13_
 
 ## State
-- `master` = `857c418` (PR #20). It deploys itself to GitHub Pages on every
-  push (`.github/workflows/deploy.yml`, about 30 s):
+- `master` = `62261d9` (PR #21, doors open/close). It deploys itself to
+  GitHub Pages on every push (`.github/workflows/deploy.yml`, about 30 s):
   https://ozanserifoglu.github.io/house_3d_double/
-- Branch `feature/door-open` (off `master`): doors open/close. **Not
-  committed yet** (waiting for the owner's go-ahead); no PR.
+- No open feature branches or worktrees.
 - PRs have no CI checks. Test locally (`npm run dev`, `npm run build`).
 
 ## Last session (2026-11-13)
-- **Doors open and close** (roadmap 4, "openings between rooms"): see
+- **Doors open and close** (PR #21, merged; roadmap 4, "openings between rooms"): see
   CLAUDE.md "Doors". Owner's picks: panel controls + double-click in 3D;
   swing area drawn in Plan, furniture in it flagged; instant (no animation).
   Clicked through: Open/Close button, double-click toggle + undo, hinge
@@ -33,15 +32,14 @@ _Last updated: 2026-11-13_
   (recommended). It changes the save format, so ask before building it.
 
 ## Next up (suggested order)
-1. Commit + PR `feature/door-open` once the owner has looked at it.
-2. Optional before GLB: `items.js` split (TODO.md "Code smells").
-3. GLB/glTF import (roadmap 2), after the storage decision.
+1. Optional before GLB: `items.js` split (TODO.md "Code smells").
+2. GLB/glTF import (roadmap 2), after the storage decision.
+3. Small fix worth doing soon: re-snap a door/window to its wall after R or
+   a typed angle (TODO.md Bugs), now that doors are opened often.
 
 ## Loose ends
 - Follow-ups in TODO.md "Doors (open/close)", "Sun through windows" and
   "Wall holes".
-- Turning a door with R still pushes it off the wall (TODO.md Bugs); with
-  doors now opening, that will come up more often.
 - An empty `.claude/worktrees/` folder remains; git ignores it.
 
 ## Notes for a hub session running agents
